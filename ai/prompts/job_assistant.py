@@ -43,7 +43,6 @@ Rules for the "description":
   reviews. Bonus if you've worked with vector databases."
 - Base it on the user note/title; do not invent unrelated, unrealistic demands.
 - If the user note already contains details, preserve and enrich them.
-- Use whole numbers in Pakistani Rupees (PKR).
 """
 
 
