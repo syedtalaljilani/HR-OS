@@ -6,15 +6,18 @@ import { useParams } from "next/navigation";
 
 import Badge from "@/app/hr/_components/Badge";
 import Button from "@/app/hr/_components/Button";
+import RecommendationBadge from "@/app/hr/_components/RecommendationBadge";
+import RequirementItem from "@/app/hr/_components/RequirementItem";
 import { Field, inputClass } from "@/app/hr/_components/Field";
-import Modal, { ErrorNote } from "@/app/hr/_components/Modal";
-import { LoadingScreen } from "@/app/hr/_components/Button";
+import Modal, { EmptyState, ErrorNote } from "@/app/hr/_components/Modal";
+import { DetailSkeleton } from "@/app/hr/_components/Skeleton";
 import {
   api,
   formatDate,
   formatMoney,
   formatStatus,
   type ApplicationDetail,
+  type Candidate,
   type EvidenceItem,
 } from "@/app/hr/_lib/api";
 
@@ -42,9 +45,7 @@ const EMAIL_TYPES = [
   "TALENT_POOL",
 ];
 
-type Action =
-  | "process"
-  | "screen"
+type ModalAction =
   | "status"
   | "decision"
   | "override"
@@ -52,52 +53,23 @@ type Action =
   | "email"
   | null;
 
-const EVIDENCE_COLORS: Record<EvidenceItem["status"], string> = {
-  MATCH: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  PARTIAL: "bg-amber-50 text-amber-700 ring-amber-200",
-  MISSING: "bg-rose-50 text-rose-700 ring-rose-200",
-  UNCLEAR: "bg-zinc-100 text-zinc-600 ring-zinc-200",
-};
+type Tab = "overview" | "cv" | "screening" | "activity";
 
-function EvidenceGroup({ title, items }: { title: string; items: EvidenceItem[] }) {
-  if (!items || items.length === 0) return null;
+const TABS: { key: Tab; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "cv", label: "CV" },
+  { key: "screening", label: "AI screening" },
+  { key: "activity", label: "Activity" },
+];
+
+function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
-    <div>
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-        {title}
-      </h3>
-      <ul className="mt-2 flex flex-col gap-2">
-        {items.map((item) => (
-          <li
-            key={item.requirement}
-            className=" border border-zinc-200 bg-white p-4"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-sm font-medium text-zinc-900">
-                {item.requirement}
-              </p>
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${EVIDENCE_COLORS[item.status]}`}
-              >
-                {item.status}
-              </span>
-            </div>
-            {item.evidence ? (
-              <p className="mt-1.5 text-sm text-zinc-500">“{item.evidence}”</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+    <div className="flex items-start justify-between gap-6 border-b border-zinc-100 py-3 last:border-b-0">
+      <dt className="text-sm text-zinc-500">{label}</dt>
+      <dd className="text-right text-sm font-medium text-zinc-900">
+        {value ?? "—"}
+      </dd>
     </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className=" border border-zinc-200 bg-white p-6 shadow-sm">
-      <h2 className="mb-4 text-base font-semibold text-zinc-900">{title}</h2>
-      {children}
-    </section>
   );
 }
 
@@ -106,16 +78,25 @@ export default function CandidateDetailPage() {
   const id = params.id;
 
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [action, setAction] = useState<Action>(null);
+  const [tab, setTab] = useState<Tab>("overview");
+  const [action, setAction] = useState<ModalAction>(null);
   const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState<"process" | "screen" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
-      setDetail(await api<ApplicationDetail>(`/applications/${id}`));
+      const next = await api<ApplicationDetail>(`/applications/${id}`);
+      setDetail(next);
       setError(null);
+      if (next.candidate_id) {
+        api<Candidate>(`/candidates/${next.candidate_id}`)
+          .then(setCandidate)
+          .catch(() => setCandidate(null));
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load application");
     }
@@ -127,9 +108,39 @@ export default function CandidateDetailPage() {
     })();
   }, [load]);
 
-  function openAction(next: Action) {
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  function openAction(next: ModalAction) {
     setFormData({});
     setAction(next);
+  }
+
+  async function runDirect(kind: "process" | "screen") {
+    if (!detail) return;
+    setRunning(kind);
+    setError(null);
+    try {
+      if (kind === "process") {
+        await api(`/applications/${detail.id}/process`, { method: "POST" });
+      } else {
+        await api(`/applications/${detail.id}/screen`, { method: "POST" });
+      }
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : kind === "process"
+            ? "CV processing could not be completed."
+            : "AI screening could not be completed."
+      );
+    } finally {
+      setRunning(null);
+    }
   }
 
   async function runAction() {
@@ -177,13 +188,9 @@ export default function CandidateDetailPage() {
           },
         });
         setNotice("Email logged successfully.");
-      } else if (action === "process") {
-        await api(`/applications/${detail.id}/process`, { method: "POST" });
-      } else if (action === "screen") {
-        await api(`/applications/${detail.id}/screen`, { method: "POST" });
       }
       setAction(null);
-      load();
+      await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Action failed");
     } finally {
@@ -191,25 +198,38 @@ export default function CandidateDetailPage() {
     }
   }
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), 4000);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
   if (error) {
     return (
-      <div className="flex flex-1 flex-col gap-4 p-8">
+      <div className="p-6 sm:p-8">
         <ErrorNote message={error} />
-        <Link href="/dashboard/candidates" className="text-sm text-violet-600 hover:underline">
+        <Link
+          href="/dashboard/candidates"
+          className="mt-3 inline-block text-sm text-violet-600 hover:underline"
+        >
           ← Back to candidates
         </Link>
       </div>
     );
   }
-  if (!detail) return <LoadingScreen />;
+  if (!detail) return <DetailSkeleton />;
 
   const screening = detail.screening;
+  const profile = candidate?.profile_data as
+    | {
+        skills?: string[];
+        experience?: string[];
+        education?: string[];
+      }
+    | null
+    | undefined;
+  const profileSkills = Array.isArray(profile?.skills) ? profile.skills : [];
+  const profileExperience = Array.isArray(profile?.experience)
+    ? profile.experience
+    : [];
+  const profileEducation = Array.isArray(profile?.education)
+    ? profile.education
+    : [];
+
   const evidence =
     (screening?.evidence as { items?: EvidenceItem[] } | null)?.items ?? [];
   const missing =
@@ -217,217 +237,416 @@ export default function CandidateDetailPage() {
   const uncertain =
     (screening?.uncertainty as { items?: EvidenceItem[] } | null)?.items ?? [];
 
-  const score = screening?.score ? Number(screening.score) : null;
+  const score =
+    screening && screening.score !== null
+      ? Math.round(Number(screening.score))
+      : null;
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-8">
-      <div>
-        <Link
-          href="/dashboard/candidates"
-          className="text-sm text-zinc-500 hover:text-zinc-800"
-        >
-          ← Back to candidates
-        </Link>
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-zinc-900">
-                {detail.candidate_name}
-              </h1>
-              <Badge status={detail.status} />
-            </div>
-            <p className="mt-1 text-sm text-zinc-500">
-              {detail.application_id} • {detail.job_title}
-            </p>
-            <p className="mt-1 text-sm text-zinc-500">
-              {detail.candidate_email}
-              {detail.candidate_phone ? ` • ${detail.candidate_phone}` : ""}
-              {detail.expected_salary
-                ? ` • Expected ${formatMoney(detail.expected_salary)}`
-                : ""}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              loading={action === "process" && busy}
-              onClick={() => openAction("process")}
-              className="px-3 py-1.5"
-            >
-              Process CV
-            </Button>
-            <Button
-              variant="secondary"
-              loading={action === "screen" && busy}
-              onClick={() => openAction("screen")}
-              className="px-3 py-1.5"
-            >
-              Run AI screening
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => openAction("status")}
-              className="px-3 py-1.5"
-            >
-              Change status
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => openAction("decision")}
-              className="px-3 py-1.5"
-            >
-              Final decision
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => openAction("override")}
-              className="px-3 py-1.5"
-            >
-              Override
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => openAction("talent")}
-              className="px-3 py-1.5"
-            >
-              Add to talent pool
-            </Button>
-            <Button variant="secondary" onClick={() => openAction("email")} className="px-3 py-1.5">
-              Send email
-            </Button>
-          </div>
-        </div>
-        {notice ? (
-          <p className="mt-4  bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
-            {notice}
+    <div className="flex flex-1 flex-col gap-5 p-6 sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Link
+            href="/dashboard/candidates"
+            className="text-sm text-zinc-500 hover:text-zinc-800"
+          >
+            ← Candidates
+          </Link>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-zinc-900">
+            {detail.candidate_name}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {detail.job_title ?? "Position"} • {detail.application_id}
           </p>
-        ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge status={detail.status} />
+          <Button
+            variant="secondary"
+            loading={running === "process"}
+            onClick={() => runDirect("process")}
+            className="text-[13px]"
+          >
+            Process CV
+          </Button>
+          <Button
+            variant="secondary"
+            loading={running === "screen"}
+            onClick={() => runDirect("screen")}
+            className="text-[13px]"
+          >
+            Run AI screening
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="flex flex-col gap-6">
-          <Section title="AI screening">
-            {!screening ? (
+      {notice ? (
+        <p className="border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {notice}
+        </p>
+      ) : null}
+
+      <div className="flex gap-1 border-b border-zinc-200" role="tablist">
+        {TABS.map((item) => (
+          <button
+            key={item.key}
+            role="tab"
+            aria-selected={tab === item.key}
+            onClick={() => setTab(item.key)}
+            className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
+              tab === item.key
+                ? "border-violet-600 text-violet-700"
+                : "border-transparent text-zinc-500 hover:text-zinc-800"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <section className="border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-2 text-base font-semibold text-zinc-900">
+              Candidate
+            </h2>
+            <dl>
+              <FieldRow label="Full name" value={detail.candidate_name} />
+              <FieldRow label="Email" value={detail.candidate_email} />
+              <FieldRow label="Phone" value={detail.candidate_phone} />
+              <FieldRow
+                label="Address"
+                value={
+                  (candidate?.profile_data?.address as string | null | undefined) ?? null
+                }
+              />
+              <FieldRow
+                label="Expected salary"
+                value={
+                  detail.expected_salary
+                    ? formatMoney(detail.expected_salary)
+                    : null
+                }
+              />
+            </dl>
+            <dl className="mt-4 border-t border-zinc-200 pt-2">
+              <FieldRow label="Position" value={detail.job_title} />
+              <FieldRow label="Applied" value={formatDate(detail.created_at)} />
+              <FieldRow label="Consent" value={detail.consent ? "On file" : "Not given"} />
+            </dl>
+          </section>
+
+          <section className="border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-base font-semibold text-zinc-900">
+              Extracted profile
+            </h2>
+            {profileSkills.length === 0 &&
+            profileExperience.length === 0 &&
+            profileEducation.length === 0 ? (
               <p className="text-sm text-zinc-500">
-                No screening result yet. Run AI screening to get a
-                recommendation.
+                No extracted profile yet.
+                {running !== "process" ? (
+                  <>
+                    {" "}
+                    Run{" "}
+                    <button
+                      onClick={() => runDirect("process")}
+                      className="font-medium text-violet-600 hover:underline"
+                    >
+                      Process CV
+                    </button>{" "}
+                    to extract structured data.
+                  </>
+                ) : null}
               </p>
             ) : (
               <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex flex-col items-center">
-                    <span className="text-4xl font-bold text-violet-600">
-                      {score ?? "–"}
-                    </span>
-                    <span className="text-xs text-zinc-400">match score</span>
-                  </div>
-                  <div className="flex flex-1 flex-col gap-1.5">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">Recommendation</span>
-                      <Badge status={screening.recommendation ?? "UNCLEAR"} />
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">HR decision</span>
-                      <span className="font-medium text-zinc-900">
-                        {formatStatus(screening.hr_decision)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-zinc-600">Model</span>
-                      <span className="font-mono text-xs text-zinc-500">
-                        {screening.model ?? "—"}
-                      </span>
+                {profileSkills.length > 0 ? (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Skills
+                    </h3>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {profileSkills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="bg-violet-50 px-2 py-0.5 text-sm text-violet-700"
+                        >
+                          {skill}
+                        </span>
+                      ))}
                     </div>
                   </div>
-                </div>
+                ) : null}
+                {profileExperience.length > 0 ? (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Experience
+                    </h3>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {profileExperience.map((entry) => (
+                        <li key={entry} className="text-sm text-zinc-700">
+                          {entry}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {profileEducation.length > 0 ? (
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Education
+                    </h3>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {profileEducation.map((entry) => (
+                        <li key={entry} className="text-sm text-zinc-700">
+                          {entry}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
             )}
-          </Section>
-
-          <Section title="Requirement matching">
-            {evidence.length === 0 ? (
-              <p className="text-sm text-zinc-500">
-                No matching data available.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-6">
-                <EvidenceGroup title="Matches" items={evidence} />
-              </div>
-            )}
-          </Section>
+          </section>
         </div>
+      ) : null}
 
-        <div className="flex flex-col gap-6">
-          <Section title="Missing requirements">
-            {missing.length === 0 ? (
-              <p className="text-sm text-zinc-500">Nothing missing.</p>
-            ) : (
-              <EvidenceGroup title="Missing" items={missing} />
-            )}
-          </Section>
-
-          <Section title="Uncertainty flags">
-            {uncertain.length === 0 ? (
-              <p className="text-sm text-zinc-500">No uncertainty flags.</p>
-            ) : (
-              <EvidenceGroup title="Uncertain" items={uncertain} />
-            )}
-          </Section>
-
-          <Section title="CV documents">
-            {detail.cv_documents.length === 0 ? (
-              <p className="text-sm text-zinc-500">No CV uploaded.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {detail.cv_documents.map((doc) => (
-                  <li
-                    key={doc.id}
-                    className="flex items-center justify-between  border border-zinc-200 px-4 py-3"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-zinc-900">
+      {tab === "cv" ? (
+        <section className="border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-base font-semibold text-zinc-900">
+            CV documents
+          </h2>
+          {detail.cv_documents.length === 0 ? (
+            <EmptyState
+              title="No CV uploaded"
+              description="The candidate applied without uploading a CV."
+            />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {detail.cv_documents.map((doc) => (
+                <li
+                  key={doc.id}
+                  className="flex items-center justify-between gap-3 border border-zinc-200 px-4 py-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-violet-600 text-white">
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-zinc-900">
                         {doc.file_name}
                       </p>
                       <p className="text-xs text-zinc-500">
-                        {doc.mime_type} • uploaded {formatDate(doc.created_at)}
+                        {doc.mime_type ?? "Unknown type"} • uploaded{" "}
+                        {formatDate(doc.created_at)}
                       </p>
                     </div>
-                    <Badge status={doc.extraction_status} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
+                  </div>
+                  <Badge status={doc.extraction_status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
-          <Section title="Status history">
-            {detail.status_history.length === 0 ? (
-              <p className="text-sm text-zinc-500">No history yet.</p>
-            ) : (
-              <ol className="flex flex-col gap-3">
-                {detail.status_history.map((entry) => (
-                  <li key={entry.id} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-violet-500" />
-                      <span className="w-px flex-1 bg-zinc-200" />
-                    </div>
-                    <div className="mb-3 flex-1">
-                      <p className="text-sm font-medium text-zinc-800">
-                        {entry.from_status
-                          ? `${formatStatus(entry.from_status)} → ${formatStatus(entry.to_status)}`
-                          : formatStatus(entry.to_status)}
+      {tab === "screening" ? (
+        <div className="flex flex-col gap-6">
+          {!screening ? (
+            <div className="border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="text-base font-semibold text-zinc-900">
+                AI screening
+              </h2>
+              <EmptyState
+                title="No screening result yet"
+                description="Run AI screening to match the candidate against the job requirements. The result is a draft recommendation — the final decision stays with HR."
+              >
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    loading={running === "screen"}
+                    onClick={() => runDirect("screen")}
+                  >
+                    Run AI screening
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    loading={running === "process"}
+                    onClick={() => runDirect("process")}
+                  >
+                    Process CV first
+                  </Button>
+                </div>
+              </EmptyState>
+            </div>
+          ) : (
+            <>
+              <section className="border border-zinc-200 border-l-4 border-l-violet-500 bg-white p-6 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-base font-semibold text-zinc-900">
+                      AI recommendation
+                    </h2>
+                    <p className="mt-0.5 text-xs text-zinc-400">
+                      Draft evaluation by the screening model — for HR
+                      consideration.
+                    </p>
+                  </div>
+                  <RecommendationBadge
+                    recommendation={screening.recommendation}
+                  />
+                </div>
+
+                <div className="mt-5 grid gap-6 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-zinc-500">Match score</p>
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-zinc-900">
+                      {score ?? "–"}
+                      <span className="text-base font-medium text-zinc-400">
+                        /100
+                      </span>
+                    </p>
+                    {score !== null ? (
+                      <div className="mt-2 h-1.5 w-full bg-zinc-100">
+                        <div
+                          className="h-1.5 bg-violet-600"
+                          style={{ width: `${Math.min(100, Math.max(0, score))}%` }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                  <div>
+                    <p className="text-xs text-zinc-500">Model</p>
+                    <p className="mt-1 break-all font-mono text-sm text-zinc-700">
+                      {screening.model ?? "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-zinc-500">Human review</p>
+                    <p className="mt-1 text-sm text-zinc-700">
+                      {formatStatus(screening.hr_decision)}
+                    </p>
+                    {screening.reviewed_by ? (
+                      <p className="text-xs text-zinc-400">
+                        reviewed by {screening.reviewed_by.slice(0, 8)}…
                       </p>
-                      <p className="text-xs text-zinc-500">
-                        {formatDate(entry.created_at)}
-                        {entry.reason ? ` — ${entry.reason}` : ""}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </Section>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+
+              {(evidence.length > 0 ||
+                missing.length > 0 ||
+                uncertain.length > 0) ? (
+                <section className="flex flex-col gap-6">
+                  {evidence.length > 0 ? (
+                    <RequirementGroup title="Requirement match" items={evidence} />
+                  ) : null}
+                  {missing.length > 0 ? (
+                    <RequirementGroup title="Missing" items={missing} />
+                  ) : null}
+                  {uncertain.length > 0 ? (
+                    <RequirementGroup title="Needs verification" items={uncertain} />
+                  ) : null}
+                </section>
+              ) : (
+                <p className="text-sm text-zinc-500">
+                  No requirement evidence available yet.
+                </p>
+              )}
+            </>
+          )}
+
+          <section className="border border-zinc-200 border-l-4 border-l-amber-400 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-zinc-900">
+                  HR review
+                </h2>
+                <p className="mt-0.5 text-xs text-zinc-400">
+                  The AI recommendation is not a decision — final outcomes are
+                  set by HR here.
+                </p>
+              </div>
+              {screening ? (
+                <span className="px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ring-zinc-300 bg-white text-zinc-600">
+                  {screening.hr_decision === "PENDING"
+                    ? "HR decision pending"
+                    : formatStatus(screening.hr_decision)}
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ring-zinc-300 bg-white text-zinc-600">
+                  Not screened yet
+                </span>
+              )}
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => openAction("decision")}>
+                Final decision
+              </Button>
+              <Button variant="secondary" onClick={() => openAction("status")}>
+                Change status
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => openAction("override")}
+                disabled={!screening}
+              >
+                Override recommendation
+              </Button>
+              <Button variant="secondary" onClick={() => openAction("talent")}>
+                Add to talent pool
+              </Button>
+              <Button variant="secondary" onClick={() => openAction("email")}>
+                Send email
+              </Button>
+            </div>
+          </section>
         </div>
-      </div>
+      ) : null}
+
+      {tab === "activity" ? (
+        <section className="border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-base font-semibold text-zinc-900">
+            Status history
+          </h2>
+          {detail.status_history.length === 0 ? (
+            <EmptyState title="No history yet" />
+          ) : (
+            <ol className="flex flex-col">
+              {detail.status_history.map((entry, index) => (
+                <li key={entry.id} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <span
+                      className={`mt-1 h-2.5 w-2.5 ${
+                        index === detail.status_history.length - 1
+                          ? "bg-violet-600"
+                          : "bg-emerald-500"
+                      }`}
+                    />
+                    {index < detail.status_history.length - 1 ? (
+                      <span className="w-px flex-1 bg-zinc-200" />
+                    ) : null}
+                  </div>
+                  <div className="flex-1 pb-5">
+                    <p className="text-sm font-medium text-zinc-900">
+                      {entry.from_status
+                        ? `${formatStatus(entry.from_status)} → ${formatStatus(entry.to_status)}`
+                        : formatStatus(entry.to_status)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {formatDate(entry.created_at)}
+                      {entry.reason ? ` — ${entry.reason}` : ""}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      ) : null}
 
       <Modal
         open={action !== null}
@@ -438,14 +657,10 @@ export default function CandidateDetailPage() {
             : action === "decision"
               ? "Final decision"
               : action === "override"
-                ? "Override screening result"
+                ? "Override recommendation"
                 : action === "talent"
                   ? "Add to talent pool"
-                  : action === "email"
-                    ? "Send email"
-                    : action === "screen"
-                      ? "AI screening"
-                      : "Process CV"
+                  : "Send email"
         }
       >
         <div className="flex flex-col gap-4">
@@ -517,7 +732,7 @@ export default function CandidateDetailPage() {
                 >
                   {RECOMMENDATIONS.map((rec) => (
                     <option key={rec} value={rec}>
-                      {rec}
+                      {formatStatus(rec)}
                     </option>
                   ))}
                 </select>
@@ -594,42 +809,37 @@ export default function CandidateDetailPage() {
             </p>
           ) : null}
 
-          {action === "process" ? (
-            <p className="text-sm text-zinc-600">
-              Extract structured data from the uploaded CV. This prepares the
-              application for AI screening.
-            </p>
-          ) : null}
-
-          {action === "screen" ? (
-            <p className="text-sm text-zinc-600">
-              Run AI screening to match the candidate profile against job
-              requirements. The result is a draft recommendation — the final
-              decision stays with HR.
-            </p>
-          ) : null}
-
-          {action === "process" || action === "screen" ? (
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setAction(null)}>
-                Cancel
-              </Button>
-              <Button onClick={runAction} loading={busy}>
-                {action === "process" ? "Process CV" : "Run screening"}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setAction(null)}>
-                Cancel
-              </Button>
-              <Button onClick={runAction} loading={busy}>
-                Confirm
-              </Button>
-            </div>
-          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setAction(null)}>
+              Cancel
+            </Button>
+            <Button onClick={runAction} loading={busy}>
+              Confirm
+            </Button>
+          </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+function RequirementGroup({
+  title,
+  items,
+}: {
+  title: string;
+  items: EvidenceItem[];
+}) {
+  return (
+    <div>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        {title}
+      </h3>
+      <div className="flex flex-col gap-2">
+        {items.map((item) => (
+          <RequirementItem key={item.requirement} item={item} />
+        ))}
+      </div>
     </div>
   );
 }

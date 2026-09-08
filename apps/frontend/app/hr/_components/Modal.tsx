@@ -40,9 +40,11 @@ export default function Modal({
 export function EmptyState({
   title,
   description,
+  children,
 }: {
   title: string;
   description?: string;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center  border border-dashed border-zinc-300 bg-violet-50/50 px-6 py-14 text-center">
@@ -65,6 +67,7 @@ export function EmptyState({
       {description ? (
         <p className="mt-1 max-w-sm text-sm text-zinc-500">{description}</p>
       ) : null}
+      {children ? <div className="mt-4">{children}</div> : null}
     </div>
   );
 }

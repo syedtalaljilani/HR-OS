@@ -222,3 +222,13 @@ export function formatStatus(value: string): string {
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+export async function getApplicationDetails(): Promise<ApplicationDetail[]> {
+  const summaries = await api<ApplicationSummary[]>("/applications");
+  const details = await Promise.all(
+    summaries.map((app) =>
+      api<ApplicationDetail>(`/applications/${app.id}`).catch(() => null)
+    )
+  );
+  return details.filter((d): d is ApplicationDetail => d !== null);
+}

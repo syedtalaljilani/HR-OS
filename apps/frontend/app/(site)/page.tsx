@@ -1,56 +1,81 @@
 import Link from "next/link";
 
-import JobCard from "@/app/_components/JobCard";
+import JobBoard from "@/app/_components/JobBoard";
 import { listJobs } from "@/app/_lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   let jobs;
-  let error: string | null = null;
+  let loadError: string | null = null;
   try {
     jobs = await listJobs();
   } catch (caught) {
-    error = caught instanceof Error ? caught.message : "Unknown error";
+    loadError = caught instanceof Error ? caught.message : "Unknown error";
   }
 
+  const open = (jobs ?? []).filter((job) => job.status === "OPEN");
+
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-6 py-12">
-      <section className="mb-10 text-center">
-        <h1 className="text-4xl font-bold tracking-tight text-zinc-900">
-          Build your career with <span className="text-violet-600">HR OS</span>
-        </h1>
-        <p className="mx-auto mt-3 max-w-2xl text-lg text-zinc-600">
-          Explore open positions, apply with your CV in minutes, and track your
-          application status in real time.
-        </p>
-        <Link
-          href="/track"
-          className="mt-5 inline-flex items-center  border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-        >
-          Already applied? Track your application
-        </Link>
+    <main className="flex-1">
+      <section className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto flex w-full max-w-3xl flex-col items-center px-6 py-20 text-center">
+          <span className="border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+            Now hiring
+          </span>
+          <h1 className="mt-5 text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl">
+            Find your next opportunity.
+          </h1>
+          <p className="mt-4 max-w-xl text-lg text-zinc-600">
+            Explore current open roles, apply with your CV in minutes and
+            track your application from submission to decision.
+          </p>
+          <a
+            href="#positions"
+            className="mt-7 inline-flex items-center bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+          >
+            Explore open positions
+          </a>
+        </div>
       </section>
 
-      <section>
-        <h2 className="mb-4 text-xl font-semibold text-zinc-900">
-          Open positions
-        </h2>
-        {error ? (
-          <p className=" bg-rose-50 px-4 py-3 text-sm text-rose-700">
-            Could not load jobs right now ({error}). Please try again later.
+      <section id="positions" className="mx-auto flex w-full max-w-3xl flex-col px-6 py-14">
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-zinc-900">Open positions</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            {open.length === 0
+              ? "There are no open roles right now."
+              : `${open.length} open role${open.length === 1 ? "" : "s"} available.`}
           </p>
-        ) : jobs && jobs.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {jobs.map((job) => (
-              <JobCard key={job.id} job={job} />
-            ))}
+        </div>
+
+        {loadError ? (
+          <div className="border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            We couldn&apos;t load the job list right now ({loadError}). Please
+            try again later.
           </div>
+        ) : open.length > 0 ? (
+          <JobBoard jobs={open} />
         ) : (
-          <p className=" bg-zinc-100 px-4 py-3 text-sm text-zinc-600">
-            No open positions right now. Please check back soon.
-          </p>
+          <div className="border border-dashed border-zinc-300 bg-white px-6 py-14 text-center">
+            <p className="text-sm font-medium text-zinc-700">
+              No open positions right now
+            </p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Please check back soon. Meanwhile you can review previously
+              applied roles with your tracking link.
+            </p>
+          </div>
         )}
+
+        <div className="mt-12 border border-zinc-200 bg-violet-50/50 px-6 py-5 text-center">
+          <p className="text-sm text-zinc-600">
+            Already applied?{" "}
+            <Link href="/track" className="font-medium text-violet-700 hover:underline">
+              Track your application
+            </Link>
+          </p>
+        </div>
       </section>
     </main>
   );

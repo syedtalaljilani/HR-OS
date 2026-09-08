@@ -4,45 +4,31 @@ import { formatSalary, type Job } from "@/app/_lib/api";
 
 export default function JobCard({ job }: { job: Job }) {
   const salary = formatSalary(job.salary_min, job.salary_max);
-  const skills = (
-    (job.requirements as Record<string, unknown> | null)?.skills
-  ) as string[] | undefined;
 
   return (
     <Link
       href={`/jobs/${job.id}`}
-      className="group flex flex-col gap-3 border border-zinc-200 border-t-4 border-t-violet-600 bg-white p-6 transition hover:border-violet-300 hover:shadow-md"
+      className="group flex w-full items-center justify-between gap-4 border-b border-zinc-200 bg-white px-5 py-4 transition last:border-b-0 hover:bg-violet-50/60"
     >
-      <div className="flex items-start justify-between gap-4">
-        <h2 className="text-lg font-semibold text-zinc-900 group-hover:text-violet-700">
+      <div className="min-w-0">
+        <h3 className="text-base font-semibold text-zinc-900 group-hover:text-violet-700">
           {job.title}
-        </h2>
-        {salary ? (
-          <span className="whitespace-nowrap bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-            {salary}
-          </span>
+        </h3>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
+          {job.location ? <span>{job.location}</span> : null}
+          {job.location && salary ? (
+            <span aria-hidden="true">•</span>
+          ) : null}
+          {salary ? <span>{salary}</span> : null}
+        </div>
+        {job.description ? (
+          <p className="mt-1 line-clamp-1 text-sm text-zinc-600">
+            {job.description}
+          </p>
         ) : null}
       </div>
-      {job.location ? (
-        <p className="text-sm text-zinc-500">{job.location}</p>
-      ) : null}
-      {job.description ? (
-        <p className="line-clamp-2 text-sm text-zinc-600">{job.description}</p>
-      ) : null}
-      {skills && skills.length > 0 ? (
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {skills.slice(0, 6).map((skill) => (
-            <span
-              key={skill}
-              className="bg-violet-50 px-2 py-0.5 text-xs text-violet-700"
-            >
-              {skill}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <span className="mt-2 text-sm font-medium text-violet-600 group-hover:underline">
-        View &amp; apply →
+      <span className="shrink-0 border border-violet-200 bg-white px-3.5 py-1.5 text-sm font-medium text-violet-700 transition group-hover:bg-violet-600 group-hover:text-white">
+        View position →
       </span>
     </Link>
   );
