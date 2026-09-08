@@ -70,7 +70,7 @@ export default function ApplyForm({
 
   if (state.success) {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+      <div className=" border border-emerald-200 bg-emerald-50 p-6">
         <h3 className="text-lg font-semibold text-emerald-900">
           Application submitted successfully
         </h3>
@@ -85,7 +85,7 @@ export default function ApplyForm({
         </p>
         <Link
           href={`/track/${state.success.trackingToken}`}
-          className="mt-4 inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          className="mt-4 inline-flex items-center  bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
         >
           Track my application
         </Link>
@@ -103,7 +103,7 @@ export default function ApplyForm({
           id="full_name"
           name="full_name"
           required
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-full  border border-zinc-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
       </div>
       <div>
@@ -115,7 +115,7 @@ export default function ApplyForm({
           name="email"
           type="email"
           required
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-full  border border-zinc-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -126,7 +126,7 @@ export default function ApplyForm({
           <input
             id="phone"
             name="phone"
-            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full  border border-zinc-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
           />
         </div>
         <div>
@@ -139,7 +139,7 @@ export default function ApplyForm({
             type="number"
             min="0"
             step="0.01"
-            className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full  border border-zinc-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
           />
         </div>
       </div>
@@ -150,7 +150,7 @@ export default function ApplyForm({
         <input
           id="address"
           name="address"
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="w-full  border border-zinc-300 px-3 py-2 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
       </div>
       <div>
@@ -163,7 +163,7 @@ export default function ApplyForm({
           type="file"
           required
           accept=".pdf,.docx,.doc,.txt"
-          className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+          className="block w-full text-sm text-zinc-600 file:mr-3 file: file:border-0 file:bg-violet-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-violet-700 hover:file:bg-violet-100"
         />
       </div>
       <label className="flex items-start gap-2 text-sm text-zinc-600">
@@ -171,7 +171,7 @@ export default function ApplyForm({
           type="checkbox"
           name="consent"
           required
-          className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+          className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-violet-600 focus:ring-violet-500"
         />
         <span>
           I consent to {jobTitle && <>my application for {jobTitle} and</>} my
@@ -179,14 +179,14 @@ export default function ApplyForm({
         </span>
       </label>
       {state.error ? (
-        <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <p className=" bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {state.error}
         </p>
       ) : null}
       <button
         type="submit"
         disabled={state.status === "submitting"}
-        className="mt-2 inline-flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+        className="mt-2 inline-flex w-full items-center justify-center  bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
       >
         {state.status === "submitting" ? "Submitting…" : "Submit application"}
       </button>

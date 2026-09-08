@@ -89,9 +89,9 @@ export default function CandidatesPage() {
           description="Applications submitted by candidates will appear here."
         />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+        <div className="overflow-hidden  border border-zinc-200 bg-white shadow-sm">
           <table className="min-w-full divide-y divide-zinc-200 text-sm">
-            <thead className="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <thead className="bg-violet-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
               <tr>
                 <th className="px-5 py-3">Candidate</th>
                 <th className="px-5 py-3">Position</th>
@@ -105,10 +105,10 @@ export default function CandidatesPage() {
                 const candidate = candidates[app.candidate_id];
                 const job = jobs[app.job_id];
                 return (
-                  <tr key={app.id} className="transition hover:bg-zinc-50">
+                  <tr key={app.id} className="transition hover:bg-violet-50">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-sm font-semibold text-violet-700">
                           {(candidate?.full_name ?? "?")
                             .split(" ")
                             .map((part) => part[0])
@@ -138,7 +138,7 @@ export default function CandidatesPage() {
                     <td className="px-5 py-3.5 text-right">
                       <Link
                         href={`/dashboard/candidates/${app.id}`}
-                        className="font-medium text-indigo-600 hover:underline"
+                        className="font-medium text-violet-600 hover:underline"
                       >
                         Review →
                       </Link>

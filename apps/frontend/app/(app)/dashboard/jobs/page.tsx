@@ -15,7 +15,9 @@ type JobForm = {
   salary_min: string;
   salary_max: string;
   description: string;
-  requirements: string;
+  skills: string;
+  experience: string;
+  education: string;
 };
 
 const EMPTY_FORM: JobForm = {
@@ -24,7 +26,9 @@ const EMPTY_FORM: JobForm = {
   salary_min: "",
   salary_max: "",
   description: "",
-  requirements: "",
+  skills: "",
+  experience: "",
+  education: "",
 };
 
 export default function JobsPage() {
@@ -60,6 +64,8 @@ export default function JobsPage() {
   }
 
   function openEdit(job: Job) {
+    const req = (job.requirements ?? {}) as Record<string, unknown>;
+    const skills = Array.isArray(req.skills) ? req.skills.join(", ") : "";
     setEditing(job);
     setForm({
       title: job.title,
@@ -67,9 +73,9 @@ export default function JobsPage() {
       salary_min: job.salary_min ?? "",
       salary_max: job.salary_max ?? "",
       description: job.description ?? "",
-      requirements: job.requirements
-        ? JSON.stringify(job.requirements, null, 2)
-        : "",
+      skills,
+      experience: typeof req.experience === "string" ? req.experience : "",
+      education: typeof req.education === "string" ? req.education : "",
     });
     setFormError(null);
     setModalOpen(true);
@@ -79,24 +85,14 @@ export default function JobsPage() {
     event.preventDefault();
     setSaving(true);
     setFormError(null);
-    let requirements: Record<string, unknown> | null = null;
-    if (form.requirements.trim()) {
-      try {
-        const parsed = JSON.parse(form.requirements);
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-          throw new Error("Requirements must be a JSON object");
-        }
-        requirements = parsed;
-      } catch (caught) {
-        setFormError(
-          caught instanceof Error
-            ? `Invalid requirements JSON: ${caught.message}`
-            : "Invalid requirements JSON"
-        );
-        setSaving(false);
-        return;
-      }
-    }
+    const requirements: Record<string, unknown> = {};
+    const skills = form.skills
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter(Boolean);
+    if (skills.length > 0) requirements.skills = skills;
+    if (form.experience.trim()) requirements.experience = form.experience.trim();
+    if (form.education.trim()) requirements.education = form.education.trim();
     try {
       const body = {
         title: form.title,
@@ -169,7 +165,7 @@ export default function JobsPage() {
             return (
               <div
                 key={job.id}
-                className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+                className="flex flex-col  border border-zinc-200 bg-white p-5 shadow-sm"
               >
                 <div className="flex items-start justify-between gap-3">
                   <h2 className="text-base font-semibold text-zinc-900">
@@ -280,19 +276,46 @@ export default function JobsPage() {
               className={inputClass()}
             />
           </Field>
-          <Field
-            label="Requirements (JSON)"
-            hint={`Example: {"skills": ["Python", "FastAPI"], "experience": "3+ years"}`}
-          >
-            <textarea
-              rows={6}
-              value={form.requirements}
-              onChange={(event) =>
-                setForm({ ...form, requirements: event.target.value })
-              }
-              className={`${inputClass()} font-mono text-xs`}
-            />
-          </Field>
+          <div>
+            <span className="text-sm font-semibold text-zinc-700">
+              Requirements
+            </span>
+            <div className="mt-2 grid gap-4 border border-zinc-200 bg-violet-50/40 p-4">
+              <Field
+                label="Skills"
+                hint="Separate skills with commas — e.g. Python, FastAPI, PostgreSQL"
+              >
+                <input
+                  value={form.skills}
+                  onChange={(event) =>
+                    setForm({ ...form, skills: event.target.value })
+                  }
+                  className={inputClass("bg-white")}
+                  placeholder="Python, FastAPI, PostgreSQL"
+                />
+              </Field>
+              <Field label="Experience">
+                <input
+                  value={form.experience}
+                  onChange={(event) =>
+                    setForm({ ...form, experience: event.target.value })
+                  }
+                  className={inputClass("bg-white")}
+                  placeholder="e.g. 3+ years"
+                />
+              </Field>
+              <Field label="Education">
+                <input
+                  value={form.education}
+                  onChange={(event) =>
+                    setForm({ ...form, education: event.target.value })
+                  }
+                  className={inputClass("bg-white")}
+                  placeholder="e.g. Bachelor's in Computer Science"
+                />
+              </Field>
+            </div>
+          </div>
           {formError ? <ErrorNote message={formError} /> : null}
           <div className="flex justify-end gap-2 pt-2">
             <Button

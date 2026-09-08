@@ -29,7 +29,7 @@ export default async function JobDetailPage({
       <Link href="/" className="text-sm text-zinc-500 hover:text-zinc-800">
         ← Back to all jobs
       </Link>
-      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
+      <div className="mt-4  border border-zinc-200 bg-white p-6 sm:p-8">
         <h1 className="text-3xl font-bold text-zinc-900">{job.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-500">
           {salary ? (

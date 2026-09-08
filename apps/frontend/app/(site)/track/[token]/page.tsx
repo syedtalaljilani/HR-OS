@@ -27,7 +27,7 @@ export default async function TrackResultPage({
         ← Track another application
       </Link>
 
-      <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
+      <div className="mt-4  border border-zinc-200 bg-white p-6 sm:p-8">
         <h1 className="text-2xl font-bold text-zinc-900">
           {snapshot.application_id}
         </h1>
@@ -48,7 +48,7 @@ export default async function TrackResultPage({
           {snapshot.status_history.map((entry, index) => (
             <li key={`${entry.to_status}-${entry.created_at}`} className="flex gap-3">
               <div className="flex flex-col items-center">
-                <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-violet-500" />
                 {index < snapshot.status_history.length - 1 ? (
                   <span className="h-full w-px bg-zinc-200" />
                 ) : null}

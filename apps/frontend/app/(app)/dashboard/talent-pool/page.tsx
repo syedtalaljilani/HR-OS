@@ -127,7 +127,7 @@ export default function TalentPoolPage() {
         </p>
       </div>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+      <section className=" border border-zinc-200 bg-white p-6 shadow-sm">
         <h2 className="text-base font-semibold text-zinc-900">
           Match pool against a job
         </h2>
@@ -158,7 +158,7 @@ export default function TalentPoolPage() {
               {matches.map((match) => (
                 <div
                   key={match.candidate_id}
-                  className="flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50/50 px-4 py-3"
+                  className="flex items-center justify-between  border border-violet-200 bg-violet-50/50 px-4 py-3"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-zinc-900">
@@ -168,7 +168,7 @@ export default function TalentPoolPage() {
                       Pool candidate
                     </p>
                   </div>
-                  <span className="rounded-full bg-indigo-600 px-2.5 py-0.5 text-xs font-bold text-white">
+                  <span className="bg-violet-600 px-2.5 py-0.5 text-xs font-bold text-white">
                     {Math.round(match.similarity * 100)}%
                   </span>
                 </div>
@@ -189,9 +189,9 @@ export default function TalentPoolPage() {
                 setFilter("");
                 load("");
               }}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              className={`px-3 py-1 text-xs font-medium transition ${
                 filter === ""
-                  ? "bg-indigo-600 text-white"
+                  ? "bg-violet-600 text-white"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
               }`}
             >
@@ -204,9 +204,9 @@ export default function TalentPoolPage() {
                   setFilter(status);
                   load(status);
                 }}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                className={`px-3 py-1 text-xs font-medium transition ${
                   filter === status
-                    ? "bg-indigo-600 text-white"
+                    ? "bg-violet-600 text-white"
                     : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                 }`}
               >
@@ -226,7 +226,7 @@ export default function TalentPoolPage() {
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className="flex flex-col rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+                className="flex flex-col  border border-zinc-200 bg-white p-5 shadow-sm"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>

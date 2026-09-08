@@ -28,18 +28,21 @@ function StatCard({
   value,
   icon,
   accent,
+  bar,
 }: {
   label: string;
   value: number | string;
   icon: React.ReactNode;
   accent: string;
+  bar: string;
 }) {
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+    <div className="relative overflow-hidden border border-zinc-200 bg-white p-5 shadow-sm">
+      <span className={`absolute inset-x-0 top-0 h-1 ${bar}`} />
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium text-zinc-500">{label}</span>
         <span
-          className={`flex h-9 w-9 items-center justify-center rounded-xl ${accent}`}
+          className={`flex h-9 w-9 items-center justify-center  ${accent}`}
         >
           {icon}
         </span>
@@ -116,6 +119,7 @@ export default function DashboardPage() {
           label="Open positions"
           value={data.openJobs}
           accent="bg-emerald-50 text-emerald-600"
+          bar="bg-emerald-500"
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
@@ -125,7 +129,8 @@ export default function DashboardPage() {
         <StatCard
           label="Total applications"
           value={data.applications.length}
-          accent="bg-indigo-50 text-indigo-600"
+          accent="bg-violet-50 text-violet-600"
+          bar="bg-violet-600"
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -136,6 +141,7 @@ export default function DashboardPage() {
           label="Applications in pipeline"
           value={data.pipelineCount}
           accent="bg-violet-50 text-violet-600"
+          bar="bg-violet-600"
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -146,6 +152,7 @@ export default function DashboardPage() {
           label="Unique candidates"
           value={data.candidateCount}
           accent="bg-amber-50 text-amber-600"
+          bar="bg-amber-500"
           icon={
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
@@ -161,7 +168,7 @@ export default function DashboardPage() {
           </h2>
           <Link
             href="/dashboard/candidates"
-            className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+            className="text-sm font-medium text-violet-600 hover:text-violet-700"
           >
             View all →
           </Link>
@@ -172,9 +179,9 @@ export default function DashboardPage() {
             description="Applications will appear here once candidates start applying."
           />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+          <div className="overflow-hidden  border border-zinc-200 bg-white shadow-sm">
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <thead className="bg-violet-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
                 <tr>
                   <th className="px-5 py-3">Application</th>
                   <th className="px-5 py-3">Job</th>
@@ -186,12 +193,12 @@ export default function DashboardPage() {
                 {recent.map((app) => (
                   <tr
                     key={app.id}
-                    className="transition hover:bg-zinc-50"
+                    className="transition hover:bg-violet-50"
                   >
                     <td className="px-5 py-3.5">
                       <Link
                         href={`/dashboard/candidates/${app.id}`}
-                        className="font-medium text-indigo-600 hover:underline"
+                        className="font-medium text-violet-600 hover:underline"
                       >
                         {app.application_id}
                       </Link>

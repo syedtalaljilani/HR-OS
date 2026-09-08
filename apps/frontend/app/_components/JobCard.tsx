@@ -11,14 +11,14 @@ export default function JobCard({ job }: { job: Job }) {
   return (
     <Link
       href={`/jobs/${job.id}`}
-      className="group flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-6 transition hover:border-indigo-300 hover:shadow-md"
+      className="group flex flex-col gap-3 border border-zinc-200 border-t-4 border-t-violet-600 bg-white p-6 transition hover:border-violet-300 hover:shadow-md"
     >
       <div className="flex items-start justify-between gap-4">
-        <h2 className="text-lg font-semibold text-zinc-900 group-hover:text-indigo-700">
+        <h2 className="text-lg font-semibold text-zinc-900 group-hover:text-violet-700">
           {job.title}
         </h2>
         {salary ? (
-          <span className="whitespace-nowrap rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+          <span className="whitespace-nowrap bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
             {salary}
           </span>
         ) : null}
@@ -34,14 +34,14 @@ export default function JobCard({ job }: { job: Job }) {
           {skills.slice(0, 6).map((skill) => (
             <span
               key={skill}
-              className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700"
+              className="bg-violet-50 px-2 py-0.5 text-xs text-violet-700"
             >
               {skill}
             </span>
           ))}
         </div>
       ) : null}
-      <span className="mt-2 text-sm font-medium text-indigo-600 group-hover:underline">
+      <span className="mt-2 text-sm font-medium text-violet-600 group-hover:underline">
         View &amp; apply →
       </span>
     </Link>

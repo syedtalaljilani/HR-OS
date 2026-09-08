@@ -70,7 +70,7 @@ function EvidenceGroup({ title, items }: { title: string; items: EvidenceItem[] 
         {items.map((item) => (
           <li
             key={item.requirement}
-            className="rounded-xl border border-zinc-200 bg-white p-4"
+            className=" border border-zinc-200 bg-white p-4"
           >
             <div className="flex items-start justify-between gap-3">
               <p className="text-sm font-medium text-zinc-900">
@@ -94,7 +94,7 @@ function EvidenceGroup({ title, items }: { title: string; items: EvidenceItem[] 
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className=" border border-zinc-200 bg-white p-6 shadow-sm">
       <h2 className="mb-4 text-base font-semibold text-zinc-900">{title}</h2>
       {children}
     </section>
@@ -201,7 +201,7 @@ export default function CandidateDetailPage() {
     return (
       <div className="flex flex-1 flex-col gap-4 p-8">
         <ErrorNote message={error} />
-        <Link href="/dashboard/candidates" className="text-sm text-indigo-600 hover:underline">
+        <Link href="/dashboard/candidates" className="text-sm text-violet-600 hover:underline">
           ← Back to candidates
         </Link>
       </div>
@@ -298,7 +298,7 @@ export default function CandidateDetailPage() {
           </div>
         </div>
         {notice ? (
-          <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
+          <p className="mt-4  bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-inset ring-emerald-200">
             {notice}
           </p>
         ) : null}
@@ -316,7 +316,7 @@ export default function CandidateDetailPage() {
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-4">
                   <div className="flex flex-col items-center">
-                    <span className="text-4xl font-bold text-indigo-600">
+                    <span className="text-4xl font-bold text-violet-600">
                       {score ?? "–"}
                     </span>
                     <span className="text-xs text-zinc-400">match score</span>
@@ -382,7 +382,7 @@ export default function CandidateDetailPage() {
                 {detail.cv_documents.map((doc) => (
                   <li
                     key={doc.id}
-                    className="flex items-center justify-between rounded-xl border border-zinc-200 px-4 py-3"
+                    className="flex items-center justify-between  border border-zinc-200 px-4 py-3"
                   >
                     <div>
                       <p className="text-sm font-medium text-zinc-900">
@@ -407,7 +407,7 @@ export default function CandidateDetailPage() {
                 {detail.status_history.map((entry) => (
                   <li key={entry.id} className="flex gap-3">
                     <div className="flex flex-col items-center">
-                      <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-indigo-500" />
+                      <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-violet-500" />
                       <span className="w-px flex-1 bg-zinc-200" />
                     </div>
                     <div className="mb-3 flex-1">

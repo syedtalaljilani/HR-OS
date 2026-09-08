@@ -1,11 +1,10 @@
 "use client";
 
 const VARIANTS: Record<string, string> = {
-  primary:
-    "bg-indigo-600 text-white hover:bg-indigo-700 focus-visible:ring-indigo-600",
+  primary: "bg-violet-600 text-white hover:bg-violet-700",
   secondary:
-    "bg-white text-zinc-700 ring-1 ring-inset ring-zinc-300 hover:bg-zinc-50 focus-visible:ring-zinc-400",
-  ghost: "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900",
+    "bg-white text-violet-700 ring-1 ring-inset ring-violet-300 hover:bg-violet-50",
+  ghost: "text-violet-600 hover:bg-violet-50 hover:text-violet-900",
   danger:
     "bg-white text-rose-700 ring-1 ring-inset ring-rose-300 hover:bg-rose-50",
 };
@@ -25,7 +24,7 @@ export default function Button({
     <button
       {...props}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-60 ${VARIANTS[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 border border-transparent px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 disabled:opacity-60 ${VARIANTS[variant]} ${className}`}
     >
       {loading ? (
         <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -38,7 +37,7 @@ export default function Button({
 export function Spinner({ className = "h-5 w-5" }: { className?: string }) {
   return (
     <span
-      className={`inline-block animate-spin rounded-full border-2 border-indigo-600 border-t-transparent ${className}`}
+      className={`inline-block animate-spin rounded-full border-2 border-violet-600 border-t-transparent ${className}`}
     />
   );
 }
