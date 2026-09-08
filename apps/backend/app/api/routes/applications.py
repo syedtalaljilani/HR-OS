@@ -16,6 +16,8 @@ from app.schemas.application import (
     StatusUpdate,
 )
 from app.services import application_service, screening_service
+from app.services import audit_service as audit
+from app.utils.common import jsonify_data
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
@@ -107,6 +109,7 @@ def override_screening(
     if not application.screening_results:
         raise HTTPException(status_code=404, detail="No screening result to override")
     screening = application.screening_results[-1]
+    old_recommendation = screening.recommendation
     screening.recommendation = data.recommendation
     if data.score is not None:
         from decimal import Decimal
@@ -114,6 +117,16 @@ def override_screening(
         screening.score = Decimal(data.score)
     screening.hr_decision = HRDecision.OVERRIDDEN
     screening.reviewed_by = current_user.id
+    db.flush()
+    audit.log_action(
+        db,
+        user_id=current_user.id,
+        action="screening.override",
+        entity_type="screening_result",
+        entity_id=screening.id,
+        old_value={"recommendation": old_recommendation.value if old_recommendation else None},
+        new_value={"recommendation": data.recommendation, "note": data.note},
+    )
     db.commit()
     db.refresh(screening)
     return ScreeningOut.model_validate(screening)

@@ -11,6 +11,7 @@ from app.db.models.job import Job
 from app.db.models.talent_pool import TalentPool
 from app.schemas.talent_pool import TalentPoolMatchRequest
 from app.services import ai_client
+from app.services import audit_service as audit
 
 
 def _get_candidate_or_404(db: Session, candidate_id: uuid.UUID) -> Candidate:
@@ -51,6 +52,15 @@ def add_to_pool(
         added_by=added_by,
     )
     db.add(entry)
+    db.flush()
+    audit.log_action(
+        db,
+        user_id=added_by,
+        action="talent_pool.add",
+        entity_type="talent_pool",
+        entity_id=entry.id,
+        new_value={"candidate_id": str(candidate.id), "status": entry.status.value},
+    )
     db.commit()
     db.refresh(entry)
     return entry
@@ -69,7 +79,18 @@ def update_status(
     entry = db.get(TalentPool, pool_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Talent pool entry not found")
+    old_status = entry.status
     entry.status = new_status
+    db.flush()
+    audit.log_action(
+        db,
+        user_id=None,
+        action="talent_pool.status",
+        entity_type="talent_pool",
+        entity_id=entry.id,
+        old_value={"status": old_status.value},
+        new_value={"status": new_status.value},
+    )
     db.commit()
     db.refresh(entry)
     return entry

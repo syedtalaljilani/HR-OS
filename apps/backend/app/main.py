@@ -5,8 +5,10 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.api.routes import applications as applications_routes
+from app.api.routes import audit as audit_routes
 from app.api.routes import auth as auth_routes
 from app.api.routes import candidates as candidates_routes
+from app.api.routes import emails as emails_routes
 from app.api.routes import jobs as jobs_routes
 from app.api.routes import public as public_routes
 from app.api.routes import talent_pool as talent_pool_routes
@@ -37,6 +39,8 @@ app.include_router(public_routes.router)
 app.include_router(applications_routes.router)
 app.include_router(candidates_routes.router)
 app.include_router(talent_pool_routes.router)
+app.include_router(emails_routes.router)
+app.include_router(audit_routes.router)
 
 
 @app.get("/")

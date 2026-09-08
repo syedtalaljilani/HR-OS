@@ -44,24 +44,24 @@ def update_job(
     job_id: uuid.UUID,
     data: JobUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_hr_or_admin),
+    current_user: User = Depends(require_hr_or_admin),
 ):
-    return JobOut.model_validate(job_service.update_job(db, job_id, data))
+    return JobOut.model_validate(job_service.update_job(db, job_id, data, current_user.id))
 
 
 @router.post("/{job_id}/publish", response_model=JobOut)
 def publish_job(
     job_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_hr_or_admin),
+    current_user: User = Depends(require_hr_or_admin),
 ):
-    return JobOut.model_validate(job_service.publish_job(db, job_id))
+    return JobOut.model_validate(job_service.publish_job(db, job_id, current_user.id))
 
 
 @router.post("/{job_id}/close", response_model=JobOut)
 def close_job(
     job_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_hr_or_admin),
+    current_user: User = Depends(require_hr_or_admin),
 ):
-    return JobOut.model_validate(job_service.close_job(db, job_id))
+    return JobOut.model_validate(job_service.close_job(db, job_id, current_user.id))

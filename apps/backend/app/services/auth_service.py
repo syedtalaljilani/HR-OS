@@ -5,6 +5,8 @@ from app.core.security import create_access_token, get_password_hash, verify_pas
 from app.db.models.user import User
 from app.schemas.auth import LoginRequest
 from app.schemas.user import UserCreate
+from app.services import audit_service as audit
+from app.utils.common import jsonify_data, jsonify_uuid
 
 
 def authenticate(db: Session, email: str, password: str) -> User:
@@ -44,6 +46,15 @@ def create_user(db: Session, data: UserCreate) -> User:
         is_active=True,
     )
     db.add(user)
+    db.flush()
+    audit.log_action(
+        db,
+        user_id=None,
+        action="user.create",
+        entity_type="user",
+        entity_id=user.id,
+        new_value=jsonify_data(user),
+    )
     db.commit()
     db.refresh(user)
     return user
@@ -56,8 +67,19 @@ def update_user(db: Session, user: User, data) -> User:
         updates["email"] = updates["email"].lower()
     if password:
         updates["password_hash"] = get_password_hash(password)
+    old_value = jsonify_data(user)
     for key, value in updates.items():
         setattr(user, key, value)
+    db.flush()
+    audit.log_action(
+        db,
+        user_id=None,
+        action="user.update",
+        entity_type="user",
+        entity_id=user.id,
+        old_value=old_value,
+        new_value=jsonify_data(user),
+    )
     db.commit()
     db.refresh(user)
     return user

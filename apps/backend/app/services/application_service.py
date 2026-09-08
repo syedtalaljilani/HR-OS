@@ -151,6 +151,14 @@ def change_status(
     changed_by: uuid.UUID | None,
     reason: str | None = None,
 ) -> Application:
+    from app.db.models.enums import EmailType
+    from app.services import audit_service as audit
+    from app.services.email_service import (
+        application_email_body,
+        application_email_subject,
+        record_email,
+    )
+
     old = application.status
     if old != new_status:
         application.status = new_status
@@ -162,6 +170,33 @@ def change_status(
             reason=reason,
         )
         db.add(history)
+        db.flush()
+
+        audit.log_action(
+            db,
+            user_id=changed_by,
+            action="application.status",
+            entity_type="application",
+            entity_id=application.id,
+            old_value={"status": old.value if old else None},
+            new_value={"status": new_status.value, "reason": reason},
+        )
+
+        if new_status in (ApplicationStatus.SELECTED, ApplicationStatus.REJECTED) and application.candidate:
+            email_type = (
+                EmailType.SELECTED
+                if new_status == ApplicationStatus.SELECTED
+                else EmailType.REJECTED
+            )
+            record_email(
+                db,
+                application_id=application.id,
+                email_type=email_type,
+                recipient=application.candidate.email,
+                subject=application_email_subject(application, email_type),
+                body=application_email_body(application, email_type),
+                send=False,
+            )
         db.commit()
     return application
 
