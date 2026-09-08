@@ -1,10 +1,15 @@
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_db, require_hr_or_admin
+from app.core.config import settings
+
+from app.core.dependencies import get_db, require_hr_or_admin, require_roles
 from app.db.models import Application, User
+from app.db.models.enums import UserRole
 from app.db.models.enums import ApplicationStatus, HRDecision
 from app.schemas.application import (
     ApplicationDetail,
@@ -16,6 +21,7 @@ from app.schemas.application import (
     StatusUpdate,
 )
 from app.services import application_service, screening_service
+from app.services import langgraph_screening_service
 from app.services import audit_service as audit
 from app.utils.common import jsonify_data
 
@@ -48,6 +54,31 @@ def get_application(
 ):
     application = _get_application(db, application_id)
     return _to_detail(application)
+
+
+@router.get("/cv/{cv_id}/file")
+def get_cv_file(
+    cv_id: uuid.UUID,
+    _: User = Depends(require_roles(UserRole.HR, UserRole.ADMIN, UserRole.INTERVIEWER)),
+    db: Session = Depends(get_db),
+):
+    from app.db.models import CVDocument
+
+    cv = db.get(CVDocument, cv_id)
+    if cv is None:
+        raise HTTPException(status_code=404, detail="CV document not found")
+
+    path = Path(cv.file_path)
+    if not path.is_absolute():
+        path = Path(settings.UPLOAD_DIR) / "cvs" / path.name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="CV file not found on disk")
+
+    return FileResponse(
+        path,
+        media_type=cv.mime_type or "application/octet-stream",
+        filename=cv.file_name,
+    )
 
 
 def _to_detail(application: Application) -> ApplicationDetail:
@@ -94,7 +125,17 @@ def screen_application(
     _: User = Depends(require_hr_or_admin),
 ):
     application = _get_application(db, application_id)
-    screening = screening_service.screen_application(db, application)
+    try:
+        screening = langgraph_screening_service.screen_application(db, application)
+    except Exception:
+        import logging
+
+        logging.getLogger("hr-os").exception(
+            "LangGraph screening failed for %s; falling back to legacy service",
+            application_id,
+        )
+        db.rollback()
+        screening = screening_service.screen_application(db, application)
     return ScreeningOut.model_validate(screening)
 
 

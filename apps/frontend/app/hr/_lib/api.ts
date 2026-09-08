@@ -8,7 +8,7 @@ export type StoredUser = {
   id: string;
   name: string;
   email: string;
-  role: "ADMIN" | "HR";
+  role: "ADMIN" | "HR" | "INTERVIEWER";
   is_active: boolean;
 };
 
