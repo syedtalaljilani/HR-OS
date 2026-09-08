@@ -11,9 +11,32 @@ from app.schemas.application import (
     ApplicationTrackingResponse,
 )
 from app.schemas.job import JobOut
-from app.services import application_service, job_service
+from app.services import application_service, extraction_service, job_service
+from app.utils.validators import validate_cv_file, validate_file_size
+from app.core.config import settings
 
 router = APIRouter(prefix="/public", tags=["Public"])
+
+
+@router.post("/cv/extract")
+async def extract_cv(
+    file: UploadFile = File(...),
+):
+    """OCR a CV with DeepSeek-OCR and return a structured candidate profile.
+
+    Used by the public apply form to pre-fill the application fields. The
+    profile is NOT persisted here — the user reviews/edits it before submit.
+    """
+    validate_cv_file(file)
+    contents = await file.read()
+    validate_file_size(contents)
+
+    profile = extraction_service.extract_profile_with_ocr(
+        contents,
+        file.filename or "cv.pdf",
+        dpi=settings.OCR_PAGE_DPI,
+    )
+    return {"profile": profile}
 
 
 @router.get("/jobs", response_model=list[JobOut])
@@ -40,6 +63,9 @@ async def apply_for_job(
     address: str | None = Form(default=None),
     expected_salary: str | None = Form(default=None),
     consent: str = Form(default="true"),
+    skills: str | None = Form(default=None),
+    education: str | None = Form(default=None),
+    experience: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     job = job_service.get_open_job(db, job_id)
@@ -51,6 +77,9 @@ async def apply_for_job(
         address=address,
         expected_salary=Decimal(expected_salary) if expected_salary else None,
         consent=consent.strip().lower() in ("true", "1", "yes", "on"),
+        skills=skills,
+        education=education,
+        experience=experience,
     )
 
     contents = await file.read()

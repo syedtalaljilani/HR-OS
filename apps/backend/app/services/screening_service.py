@@ -83,7 +83,9 @@ def process_application(db: Session, application: Application) -> dict:
 
     candidate: Candidate = application.candidate
     existing_profile = candidate.profile_data or {}
-    existing_profile.update({k: v for k, v in profile.items() if v is not None})
+    for key, value in profile.items():
+        if value is not None and not existing_profile.get(key):
+            existing_profile[key] = value
     candidate.profile_data = existing_profile
     candidate.full_name = profile.get("name") or candidate.full_name
 

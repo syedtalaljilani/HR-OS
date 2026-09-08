@@ -75,6 +75,27 @@ function FieldRow({ label, value }: { label: string; value?: React.ReactNode }) 
   );
 }
 
+function EducationEntry({ entry }: { entry: unknown }) {
+  if (typeof entry === "string") return <>{entry}</>;
+  const e = entry as Record<string, unknown>;
+  const parts = [e.degree, e.institution, e.years].filter(Boolean);
+  return <>{parts.join(" · ")}</>;
+}
+
+function ExperienceEntry({ entry }: { entry: unknown }) {
+  if (typeof entry === "string") return <>{entry}</>;
+  const e = entry as Record<string, unknown>;
+  const heading = [e.position, e.company, e.years].filter(Boolean).join(" · ");
+  return (
+    <div>
+      <p className="font-medium text-zinc-900">{heading}</p>
+      {e.description ? (
+        <p className="mt-0.5 text-zinc-500">{String(e.description)}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function CandidateDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -220,8 +241,9 @@ export default function CandidateDetailPage() {
   const profile = candidate?.profile_data as
     | {
         skills?: string[];
-        experience?: string[];
-        education?: string[];
+        experience?: unknown[];
+        education?: unknown[];
+        address?: string | null;
       }
     | null
     | undefined;
@@ -386,10 +408,10 @@ export default function CandidateDetailPage() {
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       Experience
                     </h3>
-                    <ul className="mt-2 flex flex-col gap-1.5">
-                      {profileExperience.map((entry) => (
-                        <li key={entry} className="text-sm text-zinc-700">
-                          {entry}
+                    <ul className="mt-2 flex flex-col gap-3">
+                      {profileExperience.map((entry, index) => (
+                        <li key={index} className="text-sm text-zinc-700">
+                          <ExperienceEntry entry={entry} />
                         </li>
                       ))}
                     </ul>
@@ -401,9 +423,9 @@ export default function CandidateDetailPage() {
                       Education
                     </h3>
                     <ul className="mt-2 flex flex-col gap-1.5">
-                      {profileEducation.map((entry) => (
-                        <li key={entry} className="text-sm text-zinc-700">
-                          {entry}
+                      {profileEducation.map((entry, index) => (
+                        <li key={index} className="text-sm text-zinc-700">
+                          <EducationEntry entry={entry} />
                         </li>
                       ))}
                     </ul>

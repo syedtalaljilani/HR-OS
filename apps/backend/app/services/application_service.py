@@ -1,4 +1,5 @@
 import hashlib
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -37,22 +38,56 @@ def generate_application_id(db: Session) -> str:
     return f"APP-{year}-{seq:05d}"
 
 
+def _form_profile(data: ApplicationCreate) -> dict:
+    """Build a candidate profile dict from the user-reviewed form fields."""
+    import json
+
+    profile: dict = {}
+    if data.skills:
+        skills = [s.strip() for s in data.skills.split(",") if s.strip()]
+        if skills:
+            profile["skills"] = skills
+    for key in ("education", "experience"):
+        raw = getattr(data, key)
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(parsed, list) and parsed:
+            profile[key] = parsed
+    return profile
+
+
 def get_or_create_candidate(
     db: Session, data: ApplicationCreate
 ) -> Candidate:
     email = data.email.lower()
     candidate = db.query(Candidate).filter(Candidate.email == email).first()
+    form_profile = _form_profile(data)
     if candidate:
+        if form_profile:
+            merged = candidate.profile_data or {}
+            merged.update(form_profile)
+            candidate.profile_data = merged
         return candidate
     candidate = Candidate(
         full_name=data.full_name,
         email=email,
         phone=data.phone,
         address=data.address,
+        profile_data=form_profile or None,
     )
     db.add(candidate)
     db.flush()
     return candidate
+
+
+def _normalize_phone(phone: str | None) -> str:
+    if not phone:
+        return ""
+    return re.sub(r"[^\d]", "", phone).lstrip("0")
 
 
 def check_duplicate_application(
@@ -67,6 +102,65 @@ def check_duplicate_application(
         .first()
         is not None
     )
+
+
+def check_duplicate_by_identity(
+    db: Session, data: ApplicationCreate, job_id: uuid.UUID, current_candidate_id: uuid.UUID
+) -> dict | None:
+    """Detect a repeat application from the same person (email or phone)."""
+    from app.db.models.application import Application
+    from app.db.models.candidate import Candidate
+
+    if check_duplicate_application(db, current_candidate_id, job_id):
+        return {"reason": "You have already applied for this job"}
+
+    email = data.email.lower()
+
+    existing = (
+        db.query(Candidate)
+        .filter(
+            Candidate.email == email,
+            Candidate.id != current_candidate_id,
+        )
+        .first()
+    )
+    if existing:
+        dup = (
+            db.query(Application)
+            .filter(
+                Application.candidate_id == existing.id,
+                Application.job_id == job_id,
+            )
+            .first()
+        )
+        if dup:
+            return {"reason": "You have already applied for this job"}
+
+    phone = _normalize_phone(data.phone)
+    if phone:
+        candidates = (
+            db.query(Candidate)
+            .filter(
+                Candidate.phone.is_not(None),
+                Candidate.id != current_candidate_id,
+            )
+            .all()
+        )
+        for cand in candidates:
+            if _normalize_phone(cand.phone) == phone:
+                dup = (
+                    db.query(Application)
+                    .filter(
+                        Application.candidate_id == cand.id,
+                        Application.job_id == job_id,
+                    )
+                    .first()
+                )
+                if dup:
+                    return {
+                        "reason": "An application for this job already exists under this phone number"
+                    }
+    return None
 
 
 def create_application(
@@ -91,10 +185,11 @@ def create_application(
 
     candidate = get_or_create_candidate(db, data)
 
-    if check_duplicate_application(db, candidate.id, job.id):
+    duplicate = check_duplicate_by_identity(db, data, job.id, candidate.id)
+    if duplicate:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="You have already applied for this job",
+            detail=duplicate["reason"],
         )
 
     application_id = generate_application_id(db)
@@ -209,7 +304,14 @@ def get_application_by_token(db: Session, raw_token: str) -> tuple[Application, 
         .first()
     )
     if token is None:
-        raise HTTPException(status_code=404, detail="Tracking link not found")
+        application = (
+            db.query(Application)
+            .filter(Application.application_id == raw_token)
+            .first()
+        )
+        if application is None:
+            raise HTTPException(status_code=404, detail="Tracking link not found")
+        return application, application.id.hex
 
     if token.revoked_at is not None:
         raise HTTPException(status_code=403, detail="Tracking link has been revoked")

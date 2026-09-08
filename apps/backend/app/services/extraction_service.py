@@ -1,3 +1,5 @@
+import base64
+import io
 import re
 from pathlib import Path
 
@@ -68,6 +70,69 @@ def extract_text_from_cv(cv: CVDocument) -> str:
     raise HTTPException(status_code=400, detail="Unsupported CV file type")
 
 
+def _pdf_page_images(contents: bytes, dpi: int = 200) -> list[str]:
+    """Render each PDF page to a base64 PNG for vision OCR."""
+    import pymupdf
+
+    images: list[str] = []
+    doc = pymupdf.open(stream=contents, filetype="pdf")
+    for page in doc:
+        pix = page.get_pixmap(dpi=dpi)
+        images.append(base64.b64encode(pix.tobytes("png")).decode("ascii"))
+    doc.close()
+    return images
+
+
+def ocr_extract_text(contents: bytes, filename: str, dpi: int = 200) -> str:
+    """Extract text from a CV using DeepSeek-OCR (vision model) via Ollama.
+
+    Works on rendered page images, so it also handles scanned PDFs and
+    image-based documents. Falls back to the text layer when available.
+    """
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".pdf":
+        try:
+            text_layer = extract_text_from_cv_bytes(contents, filename)
+            if len(text_layer) > 60:
+                return text_layer
+        except HTTPException:
+            pass
+    pages = _pdf_page_images(contents, dpi=dpi)
+    chunks = []
+    for page_b64 in pages:
+        try:
+            chunk = ai_client.ocr_image(page_b64)
+        except ai_client.AIUnavailable:
+            continue
+        if chunk:
+            chunks.append(chunk)
+    return "\n\n".join(chunks).strip()
+
+
+def extract_text_from_cv_bytes(contents: bytes, filename: str) -> str:
+    """Extract the embedded text layer from an in-memory CV (PDF/DOCX/TXT)."""
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".pdf":
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(contents))
+        return "\n".join(
+            (page.extract_text() or "") for page in reader.pages
+        ).strip()
+    if suffix == ".docx":
+        from docx import Document
+
+        doc = Document(io.BytesIO(contents))
+        lines = [p.text for p in doc.paragraphs]
+        for table in doc.tables:
+            for row in table.rows:
+                lines.extend(cell.text for cell in row.cells)
+        return "\n".join(lines).strip()
+    if suffix == ".txt":
+        return contents.decode("utf-8", errors="ignore").strip()
+    raise HTTPException(status_code=400, detail="Unsupported CV file type")
+
+
 def _fallback_extract_profile(text: str) -> dict:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     email = next(
@@ -116,19 +181,29 @@ def extract_candidate_profile(text: str) -> dict:
                     "content": (
                         "You extract structured candidate data from a CV. "
                         "Return ONLY JSON with keys: name, email, phone, address, "
-                        "education (array), experience (array), skills (array). "
+                        "education (array of objects with degree, institution, years), "
+                        "experience (array of objects with position, company, years, description), "
+                        "skills (array of plain skill names, comma separated values flattened), "
+                        "expected_salary (string or null). "
                         "If a value is unknown use null."
                     ),
                 },
-                {"role": "user", "content": text[:6000]},
+                {"role": "user", "content": text[:30000]},
             ]
         )
         if isinstance(result, dict):
-            for key in ("name", "email", "phone", "address"):
+            for key in ("name", "email", "phone", "address", "expected_salary"):
                 if key not in result:
                     result[key] = None
             for key in ("education", "experience", "skills"):
-                if key not in result or not isinstance(result[key], list):
+                value = result.get(key)
+                if isinstance(value, str):
+                    result[key] = [
+                        part.strip()
+                        for part in re.split(r"[,;]", value)
+                        if part.strip()
+                    ]
+                elif not isinstance(value, list):
                     result[key] = []
             return result
     except ai_client.AIUnavailable:
@@ -136,6 +211,15 @@ def extract_candidate_profile(text: str) -> dict:
     except (TimeoutError, OSError):
         pass
     return _fallback_extract_profile(text)
+
+
+def extract_profile_with_ocr(contents: bytes, filename: str, dpi: int = 200) -> dict:
+    """Extract a structured candidate profile from a CV using DeepSeek-OCR.
+
+    OCRs rendered page images, then parses the text into structured fields.
+    """
+    text = ocr_extract_text(contents, filename, dpi=dpi)
+    return extract_candidate_profile(text)
 
 
 def validate_cv(text: str, profile: dict) -> dict:

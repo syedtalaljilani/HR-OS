@@ -14,6 +14,9 @@ class ApplicationCreate(BaseModel):
     address: str | None = None
     expected_salary: Decimal | None = Field(default=None, ge=0)
     consent: bool = False
+    skills: str | None = None
+    education: str | None = None
+    experience: str | None = None
 
 
 class ApplicationTrackingResponse(BaseModel):

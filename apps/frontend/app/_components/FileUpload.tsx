@@ -7,11 +7,13 @@ export default function FileUpload({
   accept = ".pdf,.docx,.doc,.txt",
   maxSizeMb = 10,
   onClearError,
+  onFileChange,
 }: {
   name: string;
   accept?: string;
   maxSizeMb?: number;
   onClearError?: () => void;
+  onFileChange?: (file: File | null) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -29,10 +31,12 @@ export default function FileUpload({
           `Please upload a file no larger than ${maxSizeMb} MB.`
       );
       if (inputRef.current) inputRef.current.value = "";
+      onFileChange?.(null);
       return;
     }
     setSizeError(null);
     setFile(candidate);
+    onFileChange?.(candidate);
   }
 
   return (
@@ -112,6 +116,7 @@ export default function FileUpload({
               if (onClearError) onClearError();
               setFile(null);
               if (inputRef.current) inputRef.current.value = "";
+              onFileChange?.(null);
             }}
             className="shrink-0 text-sm font-medium text-violet-600 hover:text-violet-800"
           >
