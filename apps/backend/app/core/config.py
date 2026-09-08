@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
     EMBEDDING_MODEL: str = "all-minilm"
+    TRACKING_TOKEN_EXPIRE_DAYS: int = 90
     MAX_CV_SIZE_MB: int = 10
     ALLOWED_CV_MIME: list[str] = [
         "application/pdf",
