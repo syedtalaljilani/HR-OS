@@ -20,8 +20,6 @@ def generate_job_draft(job_title: str | None, user_note: str) -> dict:
     Returns a dict shaped like:
         {
             "description": str,
-            "salary_min": int | None,
-            "salary_max": int | None,
             "model": str | None,
         }
     The draft is NOT persisted here — the caller reviews then saves.
@@ -35,7 +33,5 @@ def generate_job_draft(job_title: str | None, user_note: str) -> dict:
     draft = result.get("job_draft") or {}
     return {
         "description": draft.get("description", ""),
-        "salary_min": draft.get("salary_min"),
-        "salary_max": draft.get("salary_max"),
         "model": result.get("model"),
     }

@@ -60,8 +60,6 @@ export default function JobsPage() {
     try {
       const draft = await api<{
         description: string;
-        salary_min: number | null;
-        salary_max: number | null;
         model: string | null;
       }>("/jobs/assistant/generate", {
         method: "POST",
@@ -74,10 +72,6 @@ export default function JobsPage() {
         ...form,
         title: form.title || aiTitle,
         description: draft.description || form.description,
-        salary_min:
-          draft.salary_min != null ? String(draft.salary_min) : form.salary_min,
-        salary_max:
-          draft.salary_max != null ? String(draft.salary_max) : form.salary_max,
       });
     } catch (caught) {
       setAiError(

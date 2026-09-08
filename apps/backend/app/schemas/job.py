@@ -54,6 +54,4 @@ class JobAssistantRequest(BaseModel):
 
 class JobAssistantOut(BaseModel):
     description: str
-    salary_min: int | None = None
-    salary_max: int | None = None
     model: str | None = None

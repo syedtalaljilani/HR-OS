@@ -2,7 +2,7 @@
 
 Turns a job title + user note/prompt into a draft job description using the
 LLM. Deterministic fallback keeps partial output even when the model is
-unavailable.
+unavailable. Salary is not part of the draft — the hiring manager sets it.
 """
 import re
 
@@ -28,19 +28,7 @@ def _fallback(job_title: str | None, user_note: str | None) -> dict:
     base = user_note or (f"Role for {job_title}" if job_title else "")
     return {
         "description": base,
-        "salary_min": None,
-        "salary_max": None,
     }
-
-
-def _to_int(value) -> int | None:
-    if value is None:
-        return None
-    try:
-        num = int(value)
-        return num if num >= 0 else None
-    except (TypeError, ValueError):
-        return None
 
 
 def run(state: JobAssistantState) -> dict:
@@ -62,8 +50,6 @@ def run(state: JobAssistantState) -> dict:
             "description": _to_plain_text(
                 description if isinstance(description, str) else ""
             ),
-            "salary_min": _to_int(raw.get("salary_min")),
-            "salary_max": _to_int(raw.get("salary_max")),
         }
     except (NodeError, ValueError):
         errors.append("job_assistant: LLM failed, used deterministic fallback")
