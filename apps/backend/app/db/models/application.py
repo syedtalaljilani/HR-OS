@@ -132,6 +132,7 @@ class CVDocument(Base):
     )
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=True)
     mime_type: Mapped[str] = mapped_column(String(128), nullable=True)
     extracted_text: Mapped[str] = mapped_column(Text, nullable=True)
     extraction_status: Mapped[ExtractionStatus] = mapped_column(

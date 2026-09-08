@@ -4,6 +4,7 @@ from sqlalchemy import text
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.api.routes import applications as applications_routes
 from app.api.routes import auth as auth_routes
 from app.api.routes import jobs as jobs_routes
 from app.api.routes import public as public_routes
@@ -31,6 +32,7 @@ app.include_router(auth_routes.router)
 app.include_router(users_routes.router)
 app.include_router(jobs_routes.router)
 app.include_router(public_routes.router)
+app.include_router(applications_routes.router)
 
 
 @app.get("/")

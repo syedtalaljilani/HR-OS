@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -113,6 +114,7 @@ def create_application(
         application_id=application.id,
         file_name=file.filename or "cv",
         file_path=file_path,
+        file_hash=hashlib.sha256(file_contents).hexdigest(),
         mime_type=mime_type,
         extraction_status=ExtractionStatus.PENDING,
     )
@@ -140,6 +142,28 @@ def create_application(
     db.commit()
     db.refresh(application)
     return application, raw_token
+
+
+def change_status(
+    db: Session,
+    application: Application,
+    new_status: ApplicationStatus,
+    changed_by: uuid.UUID | None,
+    reason: str | None = None,
+) -> Application:
+    old = application.status
+    if old != new_status:
+        application.status = new_status
+        history = ApplicationStatusHistory(
+            application_id=application.id,
+            from_status=old.value if old else None,
+            to_status=new_status.value,
+            changed_by=changed_by,
+            reason=reason,
+        )
+        db.add(history)
+        db.commit()
+    return application
 
 
 def get_application_by_token(db: Session, raw_token: str) -> tuple[Application, str]:
