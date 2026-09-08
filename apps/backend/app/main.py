@@ -4,6 +4,8 @@ from sqlalchemy import text
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.api.routes import auth as auth_routes
+from app.api.routes import users as users_routes
 from app.db.session import get_db
 
 app = FastAPI(
@@ -22,6 +24,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_routes.router)
+app.include_router(users_routes.router)
 
 
 @app.get("/")

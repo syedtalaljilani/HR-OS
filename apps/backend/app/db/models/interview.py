@@ -49,6 +49,7 @@ class Interview(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    application: Mapped["Application"] = relationship(back_populates="interviews")
     assignments: Mapped[list["InterviewAssignment"]] = relationship(
         back_populates="interview", cascade="all, delete-orphan"
     )
@@ -143,3 +144,5 @@ class InterviewCombinedScore(Base):
     calculated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    interview: Mapped["Interview"] = relationship(back_populates="combined_score")
