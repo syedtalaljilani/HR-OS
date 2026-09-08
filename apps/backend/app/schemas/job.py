@@ -45,3 +45,15 @@ class JobOut(BaseModel):
 
 class JobPublishOut(JobOut):
     pass
+
+
+class JobAssistantRequest(BaseModel):
+    user_input: str = Field(min_length=1, max_length=4000)
+    job_title: str | None = Field(default=None, max_length=255)
+
+
+class JobAssistantOut(BaseModel):
+    description: str
+    salary_min: int | None = None
+    salary_max: int | None = None
+    model: str | None = None

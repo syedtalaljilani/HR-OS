@@ -5,10 +5,33 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, require_hr_or_admin
 from app.db.models.user import User
-from app.schemas.job import JobCreate, JobOut, JobUpdate
-from app.services import job_service
+from app.schemas.job import (
+    JobAssistantOut,
+    JobAssistantRequest,
+    JobCreate,
+    JobOut,
+    JobUpdate,
+)
+from app.services import job_assistant_service, job_service
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
+
+
+@router.post("/assistant/generate", response_model=JobAssistantOut)
+def assistant_generate(
+    data: JobAssistantRequest,
+    _: User = Depends(require_hr_or_admin),
+):
+    """Generate a job description + requirements draft from a user prompt.
+
+    The draft is returned for human review and is NOT saved. Save happens via
+    the normal create/update job endpoints once the HR user approves it.
+    """
+    draft = job_assistant_service.generate_job_draft(
+        job_title=data.job_title,
+        user_note=data.user_input,
+    )
+    return JobAssistantOut(**draft)
 
 
 @router.post("", response_model=JobOut, status_code=status.HTTP_201_CREATED)

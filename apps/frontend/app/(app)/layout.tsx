@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 import { clearToken, getStoredUser, getToken } from "@/app/hr/_lib/api";
 import { LoadingScreen } from "@/app/hr/_components/Button";
@@ -50,18 +50,26 @@ const NAV = [
   },
 ];
 
+const emptySubscribe = () => () => {};
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const authed = typeof window !== "undefined" && !!getToken();
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+
+  const authed = mounted && !!getToken();
 
   useEffect(() => {
-    if (!authed) {
+    if (mounted && !authed) {
       router.replace("/login");
     }
-  }, [authed, router]);
+  }, [mounted, authed, router]);
 
-  if (!authed) return <LoadingScreen />;
+  if (!mounted || !authed) return <LoadingScreen />;
 
   const user = getStoredUser();
   const initials = (user?.name ?? "?")

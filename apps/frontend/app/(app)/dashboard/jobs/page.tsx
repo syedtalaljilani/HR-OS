@@ -15,9 +15,6 @@ type JobForm = {
   salary_min: string;
   salary_max: string;
   description: string;
-  skills: string;
-  experience: string;
-  education: string;
 };
 
 const EMPTY_FORM: JobForm = {
@@ -26,9 +23,6 @@ const EMPTY_FORM: JobForm = {
   salary_min: "",
   salary_max: "",
   description: "",
-  skills: "",
-  experience: "",
-  education: "",
 };
 
 export default function JobsPage() {
@@ -40,6 +34,10 @@ export default function JobsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [aiInput, setAiInput] = useState("");
+  const [aiTitle, setAiTitle] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,16 +54,51 @@ export default function JobsPage() {
     })();
   }, [load]);
 
+  async function generateWithAI() {
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const draft = await api<{
+        description: string;
+        salary_min: number | null;
+        salary_max: number | null;
+        model: string | null;
+      }>("/jobs/assistant/generate", {
+        method: "POST",
+        body: {
+          user_input: aiInput,
+          job_title: aiTitle || form.title || null,
+        },
+      });
+      setForm({
+        ...form,
+        title: form.title || aiTitle,
+        description: draft.description || form.description,
+        salary_min:
+          draft.salary_min != null ? String(draft.salary_min) : form.salary_min,
+        salary_max:
+          draft.salary_max != null ? String(draft.salary_max) : form.salary_max,
+      });
+    } catch (caught) {
+      setAiError(
+        caught instanceof Error ? caught.message : "AI generation failed"
+      );
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   function openCreate() {
     setEditing(null);
     setForm(EMPTY_FORM);
     setFormError(null);
+    setAiInput("");
+    setAiTitle("");
+    setAiError(null);
     setModalOpen(true);
   }
 
   function openEdit(job: Job) {
-    const req = (job.requirements ?? {}) as Record<string, unknown>;
-    const skills = Array.isArray(req.skills) ? req.skills.join(", ") : "";
     setEditing(job);
     setForm({
       title: job.title,
@@ -73,11 +106,11 @@ export default function JobsPage() {
       salary_min: job.salary_min ?? "",
       salary_max: job.salary_max ?? "",
       description: job.description ?? "",
-      skills,
-      experience: typeof req.experience === "string" ? req.experience : "",
-      education: typeof req.education === "string" ? req.education : "",
     });
     setFormError(null);
+    setAiInput("");
+    setAiTitle("");
+    setAiError(null);
     setModalOpen(true);
   }
 
@@ -85,14 +118,6 @@ export default function JobsPage() {
     event.preventDefault();
     setSaving(true);
     setFormError(null);
-    const requirements: Record<string, unknown> = {};
-    const skills = form.skills
-      .split(",")
-      .map((skill) => skill.trim())
-      .filter(Boolean);
-    if (skills.length > 0) requirements.skills = skills;
-    if (form.experience.trim()) requirements.experience = form.experience.trim();
-    if (form.education.trim()) requirements.education = form.education.trim();
     try {
       const body = {
         title: form.title,
@@ -100,7 +125,6 @@ export default function JobsPage() {
         salary_min: form.salary_min ? Number(form.salary_min) : null,
         salary_max: form.salary_max ? Number(form.salary_max) : null,
         description: form.description || null,
-        requirements,
       };
       if (editing) {
         await api(`/jobs/${editing.id}`, { method: "PATCH", body });
@@ -232,6 +256,50 @@ export default function JobsPage() {
               className={inputClass()}
             />
           </Field>
+
+          <div className="border border-violet-200 bg-violet-50/50 p-4">
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center bg-violet-600 text-white">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+                </svg>
+              </span>
+              <span className="text-sm font-semibold text-violet-700">
+                AI assistant
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              Describe the role in your own words, or give a prompt, and the AI
+              agent will draft a job description. Review it in the form below
+              before saving.
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              <input
+                value={aiTitle}
+                onChange={(event) => setAiTitle(event.target.value)}
+                className={inputClass("bg-white")}
+                placeholder="Job title (optional)"
+              />
+              <textarea
+                rows={3}
+                value={aiInput}
+                onChange={(event) => setAiInput(event.target.value)}
+                className={inputClass("bg-white")}
+                placeholder="e.g. We need a senior backend developer with 3+ years of FastAPI experience, strong PostgreSQL skills, and experience building scalable APIs..."
+              />
+              {aiError ? <ErrorNote message={aiError} /> : null}
+              <Button
+                type="button"
+                variant="secondary"
+                loading={aiBusy}
+                disabled={!aiInput.trim()}
+                onClick={generateWithAI}
+              >
+                Generate with AI
+              </Button>
+            </div>
+          </div>
+
           <Field label="Location">
             <input
               value={form.location}
@@ -276,46 +344,6 @@ export default function JobsPage() {
               className={inputClass()}
             />
           </Field>
-          <div>
-            <span className="text-sm font-semibold text-zinc-700">
-              Requirements
-            </span>
-            <div className="mt-2 grid gap-4 border border-zinc-200 bg-violet-50/40 p-4">
-              <Field
-                label="Skills"
-                hint="Separate skills with commas — e.g. Python, FastAPI, PostgreSQL"
-              >
-                <input
-                  value={form.skills}
-                  onChange={(event) =>
-                    setForm({ ...form, skills: event.target.value })
-                  }
-                  className={inputClass("bg-white")}
-                  placeholder="Python, FastAPI, PostgreSQL"
-                />
-              </Field>
-              <Field label="Experience">
-                <input
-                  value={form.experience}
-                  onChange={(event) =>
-                    setForm({ ...form, experience: event.target.value })
-                  }
-                  className={inputClass("bg-white")}
-                  placeholder="e.g. 3+ years"
-                />
-              </Field>
-              <Field label="Education">
-                <input
-                  value={form.education}
-                  onChange={(event) =>
-                    setForm({ ...form, education: event.target.value })
-                  }
-                  className={inputClass("bg-white")}
-                  placeholder="e.g. Bachelor's in Computer Science"
-                />
-              </Field>
-            </div>
-          </div>
           {formError ? <ErrorNote message={formError} /> : null}
           <div className="flex justify-end gap-2 pt-2">
             <Button
