@@ -236,6 +236,24 @@ def create_application(
 
     db.commit()
     db.refresh(application)
+
+    from app.db.models.enums import EmailType
+    from app.services.email_service import (
+        application_email_body,
+        application_email_subject,
+        record_email,
+    )
+
+    record_email(
+        db,
+        application_id=application.id,
+        email_type=EmailType.APPLICATION,
+        recipient=candidate.email,
+        subject=application_email_subject(application, EmailType.APPLICATION),
+        body=application_email_body(application, EmailType.APPLICATION),
+        send=True,
+    )
+
     return application, raw_token
 
 
@@ -245,6 +263,9 @@ def change_status(
     new_status: ApplicationStatus,
     changed_by: uuid.UUID | None,
     reason: str | None = None,
+    send_email: bool = False,
+    email_reason: str | None = None,
+    email_context: dict | None = None,
 ) -> Application:
     from app.db.models.enums import EmailType
     from app.services import audit_service as audit
@@ -283,14 +304,20 @@ def change_status(
                 if new_status == ApplicationStatus.SELECTED
                 else EmailType.REJECTED
             )
+            body_kwargs = dict(email_context or {})
+            body_kwargs["reason"] = (
+                email_reason if email_reason is not None else reason
+            )
             record_email(
                 db,
                 application_id=application.id,
                 email_type=email_type,
                 recipient=application.candidate.email,
                 subject=application_email_subject(application, email_type),
-                body=application_email_body(application, email_type),
-                send=False,
+                body=application_email_body(
+                    application, email_type, **body_kwargs
+                ),
+                send=send_email,
             )
         db.commit()
     return application

@@ -63,7 +63,14 @@ def application_email_subject(application, email_type: EmailType) -> str:
     return f"Application received for {title}"
 
 
-def application_email_body(application, email_type: EmailType) -> str:
+def application_email_body(
+    application,
+    email_type: EmailType,
+    reason: str | None = None,
+    score: int | float | None = None,
+    rank: int | None = None,
+    total_candidates: int | None = None,
+) -> str:
     candidate_name = application.candidate.full_name if application.candidate else "there"
     title = application.job.title if application.job else "the position"
     if email_type == EmailType.SELECTED:
@@ -75,15 +82,32 @@ def application_email_body(application, email_type: EmailType) -> str:
             "Best regards,\nHR OS"
         )
     if email_type == EmailType.REJECTED:
-        return (
+        body = (
             f"Dear {candidate_name},\n\n"
             f"Thank you for applying for {title}. After careful review we regret "
             "to inform you that we will not be moving forward with your application.\n\n"
-            "We appreciate the time and effort you invested.\n\n"
+        )
+        if score is not None:
+            body += (
+                f"Your AI-evaluated profile score: {round(float(score))}/100.\n"
+            )
+        if rank is not None and total_candidates:
+            body += (
+                f"You were ranked #{rank} of {total_candidates} candidates who "
+                "applied for this position.\n"
+            )
+        if reason:
+            body += f"\nReason: {reason}\n"
+        body += (
+            "\nWe appreciate the time and effort you invested.\n\n"
             "Best regards,\nHR OS"
         )
+        return body
     return (
         f"Dear {candidate_name},\n\n"
         f"Thank you for your application for {title}.\n\n"
+        f"Application ID: {application.application_id}\n"
+        "Your application is now in review. You will receive an update on your "
+        "application status, including the evaluation result, by email.\n\n"
         "Best regards,\nHR OS"
     )

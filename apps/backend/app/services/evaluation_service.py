@@ -1,0 +1,222 @@
+"""Automatic evaluation of applications when they are submitted.
+
+Runs CV processing + AI screening right after a candidate applies, computes a
+score, and applies the configured policy:
+
+- score below AUTO_REJECT_THRESHOLD  -> status REJECTED + rejection email w/ reason
+- score at/above threshold           -> status HR_REVIEW (AI recommends, HR decides)
+
+The applicant never gets SELECTED automatically; only recommendations and
+low-score rejections are automated, and HR can revert any of them.
+"""
+import logging
+import uuid
+
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.db.models.application import Application, ScreeningResult
+from app.db.models.enums import ApplicationStatus, Recommendation
+from app.services import application_service, screening_service
+
+logger = logging.getLogger("hros.evaluation")
+
+
+def _run_screen(db: Session, application: Application) -> ScreeningResult:
+    """Run LangGraph screening with a fallback to the legacy service."""
+    try:
+        from app.services import langgraph_screening_service
+
+        return langgraph_screening_service.screen_application(db, application)
+    except Exception:
+        logger.exception(
+            "LangGraph screening failed for %s; falling back to legacy service",
+            application.application_id,
+        )
+        db.rollback()
+        return screening_service.screen_application(db, application)
+
+
+def auto_evaluate_application(db: Session, application: Application) -> dict:
+    """Process + screen an application and apply the auto-reject policy."""
+    screening_service.process_application(db, application)
+
+    try:
+        screening = _run_screen(db, application)
+    except Exception:
+        logger.exception(
+            "Auto-evaluation failed for %s; leaving for manual review",
+            application.application_id,
+        )
+        return {"auto_evaluated": False, "error": "screening_failed"}
+
+    score = float(screening.score or 0)
+    threshold = settings.AUTO_REJECT_THRESHOLD
+    reason = None
+    rank = None
+
+    requires_human = _requires_human_review(screening)
+    floor = settings.AUTO_REJECT_FLOOR
+    # Auto-reject on any sub-threshold score when the evidence is clear. Only
+    # protect candidates in the ambiguous band (score between the floor and the
+    # threshold) who also have unresolved uncertainties — those go to HR.
+    if score < threshold and (not requires_human or score < floor):
+        rank, total_candidates = application_rank_in_job(db, application)
+        detail = _rejection_reason(application, screening, score)
+        application_service.change_status(
+            db,
+            application,
+            ApplicationStatus.REJECTED,
+            changed_by=None,
+            reason=(
+                f"AI auto-rejection (score {score:.0f}/100 below {threshold}): "
+                f"{detail}"
+            ),
+            email_reason=detail,
+            email_context={
+                "score": score,
+                "rank": rank,
+                "total_candidates": total_candidates,
+            },
+            send_email=True,
+        )
+
+    return {
+        "auto_evaluated": True,
+        "score": score,
+        "recommendation": screening.recommendation.value,
+        "status": application.status.value,
+        "rejected": application.status == ApplicationStatus.REJECTED,
+        "reason": reason,
+        "requires_human_review": requires_human,
+        "rank": rank if score < threshold else None,
+    }
+
+
+def application_rank_in_job(db: Session, application: Application) -> tuple[int, int]:
+    """Return (rank, total_scored) of an application within its job's leaderboard."""
+    ranked = rank_applications(db, job_id=application.job_id, limit=1000)
+    total = len(ranked)
+    for index, row in enumerate(ranked, start=1):
+        if row["id"] == application.id:
+            return index, total
+    return max(total, 1), total
+
+
+def _requires_human_review(screening: ScreeningResult) -> bool:
+    """Auto-reject only on clear evidence; defer uncertain cases to HR."""
+    uncertainty = screening.uncertainty or {}
+    items = uncertainty.get("items") or []
+    if items:
+        return True
+    if uncertainty.get("requires_hr_review"):
+        return True
+    return False
+
+
+def _rejection_reason(
+    application: Application, screening: ScreeningResult, score: float
+) -> str:
+    """Build a human-readable reason from the screening evidence."""
+    total_score = round(score)
+
+    evidence = screening.evidence or {}
+    items = evidence.get("items") or []
+
+    missing = []
+    for item in items:
+        if isinstance(item, dict) and item.get("status") == "MISSING":
+            req = item.get("requirement")
+            if req:
+                missing.append(req)
+
+    threshold = settings.AUTO_REJECT_THRESHOLD
+
+    if missing:
+        reason = f"The profile did not match the job requirements (score {total_score}/100, below the {threshold} threshold). Missing: {', '.join(missing[:6])}."
+    else:
+        reason = f"The profile did not meet the required match level for this role (score {total_score}/100, below the {threshold} threshold)."
+
+    return reason
+
+
+def rank_applications(
+    db: Session, job_id: uuid.UUID | None = None, limit: int = 10
+) -> list[dict]:
+    """Return applications ordered by latest AI screening score (desc)."""
+    from app.db.models.application import ApplicationStatusHistory
+
+    query = db.query(Application)
+    if job_id is not None:
+        query = query.filter(Application.job_id == job_id)
+
+    applications = query.order_by(Application.created_at.desc()).all()
+
+    auto_rejected_ids: set[uuid.UUID] = set()
+    rows = (
+        db.query(ApplicationStatusHistory.application_id)
+        .filter(
+            ApplicationStatusHistory.to_status == ApplicationStatus.REJECTED.value,
+            ApplicationStatusHistory.reason.like("AI auto%"),
+        )
+        .all()
+    )
+    auto_rejected_ids = {row[0] for row in rows}
+
+    ranked = []
+    for app in applications:
+        screening = app.screening_results[-1] if app.screening_results else None
+        ranked.append(
+            {
+                "id": app.id,
+                "application_id": app.application_id,
+                "candidate_id": app.candidate_id,
+                "job_id": app.job_id,
+                "candidate_name": app.candidate.full_name if app.candidate else None,
+                "candidate_email": app.candidate.email if app.candidate else None,
+                "job_title": app.job.title if app.job else None,
+                "status": app.status.value,
+                "created_at": app.created_at.isoformat() if app.created_at else None,
+                "score": (
+                    float(screening.score)
+                    if screening and screening.score is not None
+                    else None
+                ),
+                "recommendation": (
+                    screening.recommendation.value if screening else None
+                ),
+                "auto_rejected": (
+                    app.status == ApplicationStatus.REJECTED
+                    and app.id in auto_rejected_ids
+                ),
+            }
+        )
+
+    scored = [a for a in ranked if a["score"] is not None]
+    unsorted = [a for a in ranked if a["score"] is None]
+    scored.sort(key=lambda a: a["score"], reverse=True)
+    ranked = scored + unsorted
+    return ranked[:limit]
+
+
+def run_auto_evaluation(application_id: uuid.UUID) -> None:
+    """Background entrypoint: opens its own session and evaluates application."""
+    from app.db.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        application = db.get(Application, application_id)
+        if application is None:
+            logger.warning("Auto-evaluation skipped: application %s not found", application_id)
+            return
+        result = auto_evaluate_application(db, application)
+        logger.info(
+            "Auto-evaluation %s: %s",
+            application.application_id,
+            result,
+        )
+    except Exception:
+        logger.exception("Auto-evaluation failed for application %s", application_id)
+        db.rollback()
+    finally:
+        db.close()

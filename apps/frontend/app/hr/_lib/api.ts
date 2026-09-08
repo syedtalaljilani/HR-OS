@@ -232,3 +232,27 @@ export async function getApplicationDetails(): Promise<ApplicationDetail[]> {
   );
   return details.filter((d): d is ApplicationDetail => d !== null);
 }
+
+export type RankedApplication = {
+  id: string;
+  application_id: string;
+  candidate_id: string;
+  job_id: string;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  job_title: string | null;
+  status: string;
+  created_at: string | null;
+  score: number | null;
+  recommendation: string | null;
+  auto_rejected: boolean;
+};
+
+export async function getRankedApplications(
+  jobId?: string,
+  limit: number = 10
+): Promise<RankedApplication[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (jobId) params.set("job_id", jobId);
+  return api<RankedApplication[]>(`/applications/ranked?${params.toString()}`);
+}

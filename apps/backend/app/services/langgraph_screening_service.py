@@ -61,6 +61,7 @@ def screen_application(db: Session, application: Application) -> ScreeningResult
         application_id=application.application_id,
         candidate_id=str(application.candidate_id),
         ai_mode=True,
+        model=f"ollama/{settings.OLLAMA_MODEL}",
     )
 
     result = graph.invoke(state.as_plain())

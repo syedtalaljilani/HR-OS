@@ -1,9 +1,19 @@
 import uuid
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_db
 from app.schemas.application import (
     ApplicationCreate,
@@ -11,9 +21,13 @@ from app.schemas.application import (
     ApplicationTrackingResponse,
 )
 from app.schemas.job import JobOut
-from app.services import application_service, extraction_service, job_service
+from app.services import (
+    application_service,
+    evaluation_service,
+    extraction_service,
+    job_service,
+)
 from app.utils.validators import validate_cv_file, validate_file_size
-from app.core.config import settings
 
 router = APIRouter(prefix="/public", tags=["Public"])
 
@@ -56,6 +70,7 @@ def get_open_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
 )
 async def apply_for_job(
     job_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     full_name: str = Form(...),
     email: str = Form(...),
@@ -86,6 +101,11 @@ async def apply_for_job(
     application, raw_token = application_service.create_application(
         db, job, data, file, contents
     )
+
+    if settings.AUTO_EVALUATE_ON_APPLY:
+        background_tasks.add_task(
+            evaluation_service.run_auto_evaluation, application.id
+        )
 
     return {
         "applicationId": application.application_id,

@@ -29,6 +29,7 @@ def llm_json(
     versions = dict(prompt_versions or {})
     versions[prompt_version.split("-")[0]] = prompt_version
     model_ref = model or "ollama/" + OLLAMA_MODEL
+    model_name = model_ref.split("/", 1)[-1]
 
     if not enabled:
         raise NodeError("ai_mode disabled; deterministic fallback requested")
@@ -38,7 +39,7 @@ def llm_json(
         {"role": "user", "content": prompt},
     ]
     try:
-        result = chat_json(messages)
+        result = chat_json(messages, model=model_name)
     except AIUnavailable as e:
         raise NodeError(f"AI unavailable: {e}") from e
 

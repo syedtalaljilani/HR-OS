@@ -93,6 +93,29 @@ def run(state: ScreeningState) -> dict:
             enabled=state.ai_mode,
         )
         result = ScreeningRecommendation.model_validate(_normalize(raw))
+
+        # Guard against LLM score unreliability: if the model returns a score of 0
+        # even though requirement evidence clearly contains matches, fall back to
+        # the deterministic aggregate score. This keeps screening scores stable so
+        # automation (auto-reject / ranking) never mis-fires on a strong profile
+        # just because the chat model returned a bad number.
+        det = _deterministic(state)
+        if result.score == 0 and det.score > 0:
+            result = ScreeningRecommendation(
+                recommendation=det.recommendation,
+                score=det.score,
+                reason=result.reason or det.reason,
+                matched_requirements=result.matched_requirements
+                or det.matched_requirements,
+                missing_requirements=result.missing_requirements
+                or det.missing_requirements,
+                uncertainties=result.uncertainties or det.uncertainties,
+                requires_hr_review=(
+                    result.requires_hr_review
+                    or det.requires_hr_review
+                    or bool(result.uncertainties)
+                ),
+            )
     except (NodeError, ValueError) as e:
         errors.append(
             f"recommendation: LLM failed, used deterministic fallback "

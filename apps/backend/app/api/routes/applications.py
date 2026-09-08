@@ -46,6 +46,20 @@ def list_applications(
     return [ApplicationOut.model_validate(a) for a in applications]
 
 
+@router.get("/ranked")
+def list_ranked_applications(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_hr_or_admin),
+    job_id: uuid.UUID | None = None,
+    limit: int = 10,
+):
+    from app.services import evaluation_service
+
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    return evaluation_service.rank_applications(db, job_id=job_id, limit=limit)
+
+
 @router.get("/{application_id}", response_model=ApplicationDetail)
 def get_application(
     application_id: uuid.UUID,
