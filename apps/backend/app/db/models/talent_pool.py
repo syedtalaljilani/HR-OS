@@ -41,3 +41,5 @@ class TalentPool(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    candidate: Mapped["Candidate"] = relationship()
