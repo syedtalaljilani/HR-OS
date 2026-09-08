@@ -2,7 +2,7 @@ hr-os/
 │
 ├── apps/
 │   │
-│   ├── frontend/                              # Next.js frontend
+│   ├── web/                              # Next.js frontend
 │   │   ├── app/
 │   │   │   ├── (auth)/
 │   │   │   │   └── login/

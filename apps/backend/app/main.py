@@ -1,5 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
 
 app = FastAPI(
     title="HR Recruitment OS API",
@@ -33,4 +38,13 @@ async def health():
     return {
         "status": "ok",
         "service": "backend",
+    }
+
+@app.get("/health/db")
+async def database_health(db: Session = Depends(get_db)):
+    result = db.execute(text("SELECT 1"))
+    
+    return {
+        "database": "connected",
+        "result": result.scalar(),
     }
