@@ -23,6 +23,16 @@ const STAGE_INDEX: Record<string, number> = {
   REJECTED: 5,
 };
 
+const TERMINAL_LABEL: Record<string, string> = {
+  SELECTED: "Selected",
+  REJECTED: "Rejected",
+};
+
+const TERMINAL_MESSAGE: Record<string, string> = {
+  SELECTED: "Congratulations! Your application was successful.",
+  REJECTED: "Unfortunately, your application was not successful at this time.",
+};
+
 const STAGE_MESSAGE: Record<string, string> = {
   submitted: "Your application has been received. Thank you for applying.",
   processing: "We're processing your CV and reviewing your application.",
@@ -32,20 +42,63 @@ const STAGE_MESSAGE: Record<string, string> = {
   decision: "A final decision has been made.",
 };
 
+type TimelineHistoryItem = {
+  from_status: string | null;
+  to_status: string;
+};
+
 export default function ApplicationTimeline({
   status,
   updatedAt,
+  history = [],
 }: {
   status: string;
   updatedAt: string;
+  history?: TimelineHistoryItem[];
 }) {
   const current = STAGE_INDEX[status] ?? 0;
+
+  // Stages count as "done" only when the application actually occupied that
+  // stage AND the progress was not later reverted. Walking the history forward:
+  // moving ahead marks the destination stage; moving backward resets/cancels
+  // any progress beyond the destination. This way a rejected or reverted
+  // application never shows stages (shortlist, interview) it did not pass.
+  const reached = new Set<number>();
+  let maxStage = -1;
+  for (const item of history) {
+    const j =
+      item.to_status !== undefined && STAGE_INDEX[item.to_status] !== undefined
+        ? STAGE_INDEX[item.to_status]
+        : undefined;
+    if (j === undefined) continue;
+    if (j > maxStage) {
+      maxStage = j;
+      reached.add(j);
+    } else if (j < maxStage) {
+      for (const s of Array.from(reached)) {
+        if (s > j) reached.delete(s);
+      }
+      reached.add(j);
+      maxStage = j;
+    }
+  }
+  reached.add(current);
+
+  const stateFor = (index: number) => {
+    if (index === current) return "current";
+    if (reached.has(index)) return "done";
+    return "upcoming";
+  };
 
   return (
     <div>
       <ol className="flex flex-col">
         {STAGES.map((stage, index) => {
-          const state = index < current ? "done" : index === current ? "current" : "upcoming";
+          const state = stateFor(index);
+          const label =
+            index === current
+              ? (TERMINAL_LABEL[status] ?? stage.label)
+              : stage.label;
           return (
             <li key={stage.key} className="flex gap-4">
               <div className="flex flex-col items-center">
@@ -75,7 +128,9 @@ export default function ApplicationTimeline({
                 {index < STAGES.length - 1 ? (
                   <span
                     className={`w-px flex-1 ${
-                      index < current ? "bg-emerald-200" : "bg-zinc-200"
+                      stateFor(index + 1) === "done" || (index + 1 === current)
+                        ? "bg-emerald-200"
+                        : "bg-zinc-200"
                     }`}
                   />
                 ) : null}
@@ -88,12 +143,12 @@ export default function ApplicationTimeline({
                       : "text-zinc-900"
                   }`}
                 >
-                  {stage.label}
+                  {label}
                   {state === "current" ? " •" : ""}
                 </p>
                 {state === "current" ? (
                   <p className="mt-1 max-w-md text-sm text-zinc-500">
-                    {STAGE_MESSAGE[stage.key]}
+                    {TERMINAL_MESSAGE[status] ?? STAGE_MESSAGE[stage.key]}
                   </p>
                 ) : null}
               </div>

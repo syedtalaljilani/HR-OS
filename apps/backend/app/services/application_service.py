@@ -323,6 +323,39 @@ def change_status(
     return application
 
 
+def reject_other_applications_on_selection(
+    db: Session,
+    selected_application: Application,
+    changed_by: uuid.UUID | None,
+    reason: str = "Position filled — another candidate has been selected.",
+) -> list[Application]:
+    """When one candidate is selected for a job, reject all other applicants
+    for the same job who are still in the running (not already rejected) and
+    send each a rejection email."""
+    others = (
+        db.query(Application)
+        .filter(
+            Application.job_id == selected_application.job_id,
+            Application.id != selected_application.id,
+            Application.status != ApplicationStatus.REJECTED,
+        )
+        .all()
+    )
+    rejected: list[Application] = []
+    for application in others:
+        change_status(
+            db,
+            application,
+            ApplicationStatus.REJECTED,
+            changed_by=changed_by,
+            reason=reason,
+            send_email=True,
+            email_reason=reason,
+        )
+        rejected.append(application)
+    return rejected
+
+
 def get_application_by_token(db: Session, raw_token: str) -> tuple[Application, str]:
     token_hash = hash_token(raw_token)
     token = (

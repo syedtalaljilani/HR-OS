@@ -1,8 +1,13 @@
 import logging
+import smtplib
 import uuid
+from datetime import datetime, timezone
+from email.mime.text import MIMEText
+from email.utils import formataddr
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.models.email import Email
 from app.db.models.enums import EmailStatus, EmailType
 
@@ -32,22 +37,61 @@ def record_email(
     db.add(email)
     db.flush()
     if send:
-        _deliver(email, body)
+        try:
+            _deliver(email, body)
+        except Exception:
+            email.status = EmailStatus.FAILED
+            logger.exception(
+                "Failed to deliver %s email to %s",
+                _friendly_email_type(email.type),
+                email.recipient,
+            )
     db.commit()
     db.refresh(email)
     return email
 
 
 def _deliver(email: Email, body: str) -> None:
-    """Development delivery: logs the email. Swap with Resend/SMTP in production."""
+    """Send the email over SMTP.
+
+    Falls back to logging when SMTP is not configured so development and
+    offline runs keep working.
+    """
+    if not (
+        settings.EMAIL_ENABLED
+        and settings.SMTP_USER
+        and settings.SMTP_PASSWORD
+    ):
+        logger.info(
+            "SMTP not configured — logging %s email to %s | subject: %s\n%s",
+            _friendly_email_type(email.type),
+            email.recipient,
+            email.subject,
+            body[:500],
+        )
+        email.status = EmailStatus.SENT
+        return
+
+    sender = settings.SMTP_FROM or settings.SMTP_USER
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = email.subject
+    msg["From"] = formataddr((settings.SMTP_FROM_NAME, sender))
+    msg["To"] = email.recipient
+
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=30) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        server.sendmail(sender, [email.recipient], msg.as_string())
+    email.status = EmailStatus.SENT
+    email.sent_at = datetime.now(timezone.utc)
     logger.info(
-        "Sending %s email to %s | subject: %s\n%s",
+        "Sent %s email to %s | subject: %s",
         _friendly_email_type(email.type),
         email.recipient,
         email.subject,
-        body[:500],
     )
-    email.status = EmailStatus.SENT
 
 
 def application_email_subject(application, email_type: EmailType) -> str:
@@ -55,7 +99,7 @@ def application_email_subject(application, email_type: EmailType) -> str:
     if email_type == EmailType.SELECTED:
         return f"Application Update: You have been selected for {title}"
     if email_type == EmailType.REJECTED:
-        return f"Application Update: Update on {title}"
+        return f"Application Update on {title}"
     if email_type == EmailType.INTERVIEW:
         return f"Interview Invitation for {title}"
     if email_type == EmailType.TALENT_POOL:

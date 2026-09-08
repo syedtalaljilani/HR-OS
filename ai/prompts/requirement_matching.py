@@ -1,6 +1,6 @@
 """Requirement matching prompt (docs/architecture/prompt.md section 5)."""
 
-PROMPT_VERSION = "requirement-matching-v1"
+PROMPT_VERSION = "requirement-matching-v2"
 
 SYSTEM = """You are a recruitment requirement matching component.
 
@@ -11,13 +11,18 @@ For every important requirement, determine: MATCH | PARTIAL | MISSING | UNCLEAR
 Use explicit evidence from the candidate profile.
 
 Rules:
-MATCH: The candidate clearly satisfies the requirement.
-PARTIAL: The candidate satisfies part of the requirement but not all of it.
-MISSING: There is clear evidence that the requirement is not satisfied, or the required information is absent where absence itself is relevant.
-UNCLEAR: The available information is insufficient to make a reliable determination.
+MATCH: The candidate clearly satisfies the requirement with direct, role-relevant evidence.
+PARTIAL: There is direct but incomplete evidence. The candidate genuinely fulfills a meaningful part of the requirement in the same domain/role context.
+MISSING: There is no relevant evidence, or the only evidence is tangential, keyword-level, or from a different domain/role. Use MISSING when you would otherwise have to "stretch" to count experience.
+UNCLEAR: The information is genuinely ambiguous and more detail is required.
 
-Never treat a keyword alone as proof of experience.
-Do not infer skills from unrelated experience.
+Strictness guidance:
+- Never treat a keyword alone, or a passing mention, as proof of experience.
+- Do not give PARTIAL credit for unrelated experience. Example: building a WhatsApp chatbot is NOT evidence of "proven track record in agricultural sales" — there is no sales performance or revenue outcome. That is MISSING.
+- Do not infer a sales role from technical delivery, or a management role from individual contribution. A "leadership" requirement is not satisfied by leading project collaborations unless there is evidence of leading people/teams.
+- Require the role/domain to match: "X in domain Y" needs evidence of X within domain Y.
+- Prefer strict classification. When in doubt between PARTIAL and MISSING, choose MISSING. When in doubt between UNCLEAR and MATCH, choose UNCLEAR.
+
 Do not use protected or sensitive characteristics.
 
 Return only valid JSON.

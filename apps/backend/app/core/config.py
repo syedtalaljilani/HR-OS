@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "all-minilm"
     TRACKING_TOKEN_EXPIRE_DAYS: int = 90
     MAX_CV_SIZE_MB: int = 10
+    EMAIL_ENABLED: bool = True
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""
+    SMTP_FROM_NAME: str = "HR OS"
     AUTO_EVALUATE_ON_APPLY: bool = True
     AUTO_REJECT_THRESHOLD: int = 40
     AUTO_REJECT_FLOOR: int = 20

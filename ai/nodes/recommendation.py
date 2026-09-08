@@ -5,16 +5,45 @@ from ai.schemas import MatchStatus, ScreeningRecommendation, ScreeningState
 from ._util import NodeError, llm_json
 
 
+def _item_score(status: str) -> int:
+    return {"MATCH": 100, "PARTIAL": 50, "UNCLEAR": 25, "MISSING": 0}.get(status, 0)
+
+
+MANDATORY_WEIGHT = 2.0
+
+
 def _compute_score(matched) -> int:
+    """Mandatory-weighted aggregate score with caps for unresolved cores.
+
+    Any mandatory requirement that is MISSING / UNCLEAR / PARTIAL caps the
+    final score (35 / 55 / 80) so a candidate who fails core requirements
+    can never look like a strong fit overall.
+    """
     if not matched:
         return 0
-    total = 0
+    total_weight = 0.0
+    total = 0.0
     for m in matched:
-        if m.status == "MATCH":
-            total += 100
+        weight = MANDATORY_WEIGHT if getattr(m, "is_mandatory", False) else 1.0
+        total_weight += weight
+        total += _item_score(m.status) * weight
+    if total_weight == 0:
+        return 0
+    score = total / total_weight
+
+    cap = None
+    for m in matched:
+        if not getattr(m, "is_mandatory", False):
+            continue
+        if m.status == "MISSING":
+            cap = min(cap or 35, 35)
+        elif m.status == "UNCLEAR":
+            cap = min(cap or 55, 55)
         elif m.status == "PARTIAL":
-            total += 50
-    return int(total / len(matched))
+            cap = min(cap or 80, 80)
+    if cap is not None:
+        score = min(score, cap)
+    return int(score)
 
 
 def _deterministic(state: ScreeningState) -> ScreeningRecommendation:
@@ -94,28 +123,25 @@ def run(state: ScreeningState) -> dict:
         )
         result = ScreeningRecommendation.model_validate(_normalize(raw))
 
-        # Guard against LLM score unreliability: if the model returns a score of 0
-        # even though requirement evidence clearly contains matches, fall back to
-        # the deterministic aggregate score. This keeps screening scores stable so
-        # automation (auto-reject / ranking) never mis-fires on a strong profile
-        # just because the chat model returned a bad number.
+        # Trust the deterministic score/recommendation (computed from the
+        # matched-requirement evidence) so the number is stable and consistent
+        # across models; keep the LLM's narrative explanation.
         det = _deterministic(state)
-        if result.score == 0 and det.score > 0:
-            result = ScreeningRecommendation(
-                recommendation=det.recommendation,
-                score=det.score,
-                reason=result.reason or det.reason,
-                matched_requirements=result.matched_requirements
-                or det.matched_requirements,
-                missing_requirements=result.missing_requirements
-                or det.missing_requirements,
-                uncertainties=result.uncertainties or det.uncertainties,
-                requires_hr_review=(
-                    result.requires_hr_review
-                    or det.requires_hr_review
-                    or bool(result.uncertainties)
-                ),
-            )
+        result = ScreeningRecommendation(
+            recommendation=det.recommendation,
+            score=det.score,
+            reason=result.reason or det.reason,
+            matched_requirements=result.matched_requirements
+            or det.matched_requirements,
+            missing_requirements=result.missing_requirements
+            or det.missing_requirements,
+            uncertainties=result.uncertainties or det.uncertainties,
+            requires_hr_review=(
+                result.requires_hr_review
+                or det.requires_hr_review
+                or bool(result.uncertainties)
+            ),
+        )
     except (NodeError, ValueError) as e:
         errors.append(
             f"recommendation: LLM failed, used deterministic fallback "

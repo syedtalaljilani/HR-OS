@@ -196,7 +196,12 @@ def change_status(
 ):
     application = _get_application(db, application_id)
     application_service.change_status(
-        db, application, data.status, current_user.id, data.reason
+        db,
+        application,
+        data.status,
+        current_user.id,
+        data.reason,
+        send_email=True,
     )
     db.refresh(application)
     return ApplicationOut.model_validate(application)
@@ -231,7 +236,17 @@ def make_decision(
         )
     application = _get_application(db, application_id)
     application_service.change_status(
-        db, application, data.decision, current_user.id, data.reason
+        db,
+        application,
+        data.decision,
+        current_user.id,
+        data.reason,
+        send_email=True,
     )
+    if data.decision == ApplicationStatus.SELECTED:
+        application_service.reject_other_applications_on_selection(
+            db, application, changed_by=current_user.id, reason=data.reason
+            or "Position filled — another candidate has been selected.",
+        )
     db.refresh(application)
     return ApplicationOut.model_validate(application)

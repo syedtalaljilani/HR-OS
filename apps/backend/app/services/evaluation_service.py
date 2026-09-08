@@ -63,15 +63,13 @@ def auto_evaluate_application(db: Session, application: Application) -> dict:
     if score < threshold and (not requires_human or score < floor):
         rank, total_candidates = application_rank_in_job(db, application)
         detail = _rejection_reason(application, screening, score)
+        reason = f"AI auto-rejection (score {score:.0f}/100 below {threshold}): {detail}"
         application_service.change_status(
             db,
             application,
             ApplicationStatus.REJECTED,
             changed_by=None,
-            reason=(
-                f"AI auto-rejection (score {score:.0f}/100 below {threshold}): "
-                f"{detail}"
-            ),
+            reason=reason,
             email_reason=detail,
             email_context={
                 "score": score,

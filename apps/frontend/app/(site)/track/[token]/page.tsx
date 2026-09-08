@@ -42,6 +42,7 @@ export default async function TrackResultPage({
           <ApplicationTimeline
             status={snapshot.status}
             updatedAt={snapshot.updated_at}
+            history={snapshot.status_history}
           />
         </div>
       </div>
