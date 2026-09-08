@@ -61,9 +61,9 @@ export function formatSalary(
   max: string | null
 ): string | null {
   const money = (v: string) =>
-    Number(v).toLocaleString("en-US", {
+    Number(v).toLocaleString("en-PK", {
       style: "currency",
-      currency: "USD",
+      currency: "PKR",
       maximumFractionDigits: 0,
     });
   if (min && max) return `${money(min)} – ${money(max)}`;

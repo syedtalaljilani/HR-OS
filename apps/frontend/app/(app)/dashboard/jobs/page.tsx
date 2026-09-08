@@ -243,7 +243,7 @@ export default function JobsPage() {
             />
           </Field>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Salary min">
+            <Field label="Salary min (PKR)">
               <input
                 type="number"
                 min="0"
@@ -254,7 +254,7 @@ export default function JobsPage() {
                 className={inputClass()}
               />
             </Field>
-            <Field label="Salary max">
+            <Field label="Salary max (PKR)">
               <input
                 type="number"
                 min="0"

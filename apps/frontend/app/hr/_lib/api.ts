@@ -202,9 +202,9 @@ export type TalentPoolMatch = {
 
 export function formatMoney(value: string | null): string | null {
   if (!value) return null;
-  return Number(value).toLocaleString("en-US", {
+  return Number(value).toLocaleString("en-PK", {
     style: "currency",
-    currency: "USD",
+    currency: "PKR",
     maximumFractionDigits: 0,
   });
 }
