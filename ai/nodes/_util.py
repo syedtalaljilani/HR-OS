@@ -15,6 +15,7 @@ def llm_json(
     model: str | None,
     prompt_versions: dict[str, str] | None = None,
     enabled: bool = True,
+    max_tokens: int | None = None,
 ) -> tuple[dict, dict[str, str], str | None]:
     """Run an LLM node and record prompt/model versions.
 
@@ -39,7 +40,7 @@ def llm_json(
         {"role": "user", "content": prompt},
     ]
     try:
-        result = chat_json(messages, model=model_name)
+        result = chat_json(messages, model=model_name, max_tokens=max_tokens)
     except AIUnavailable as e:
         raise NodeError(f"AI unavailable: {e}") from e
 

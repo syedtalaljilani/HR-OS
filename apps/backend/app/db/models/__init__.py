@@ -15,6 +15,7 @@ from app.db.models.interview import (
     InterviewScorecard,
 )
 from app.db.models.job import Job
+from app.db.models.org_settings import OrgSettings
 from app.db.models.talent_pool import TalentPool
 from app.db.models.user import User
 
@@ -31,6 +32,7 @@ __all__ = [
     "InterviewCombinedScore",
     "InterviewScorecard",
     "Job",
+    "OrgSettings",
     "ScreeningResult",
     "TalentPool",
     "User",

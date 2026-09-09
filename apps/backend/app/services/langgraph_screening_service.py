@@ -39,8 +39,46 @@ def _build_job_description(application: Application) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
+def _is_uncertain(result: dict) -> bool:
+    """Primary 8B result needs a 14B second look when the case is ambiguous."""
+    recomm = result.get("recommendation")
+    if recomm is not None and getattr(recomm, "recommendation", None) == "UNCLEAR":
+        return True
+    if result.get("uncertainties"):
+        return True
+    return False
+
+
+def _run_graph(
+    *,
+    cv_text: str,
+    job_title: str | None,
+    job_description: str,
+    application_id: str | None,
+    candidate_id: str | None,
+    model: str,
+) -> dict:
+    state = ScreeningState(
+        cv_text=cv_text,
+        job_title=job_title,
+        job_description=job_description,
+        application_id=application_id,
+        candidate_id=candidate_id,
+        ai_mode=True,
+        model=f"ollama/{model}",
+        profile_model=f"ollama/{settings.OLLAMA_MODEL}",
+    )
+    return graph.invoke(state.as_plain())
+
+
 def screen_application(db: Session, application: Application) -> ScreeningResult:
-    """Run the LangGraph workflow and persist the result as a ScreeningResult."""
+    """Run the LangGraph workflow and persist the result as a ScreeningResult.
+
+    Screening runs on an efficient primary model (Qwen3-8B Q4). Only when the
+    primary result is ambiguous (UNCLEAR recommendation or unresolved
+    uncertainty items) is the workflow re-run on the large fallback model
+    (Qwen3-14B Q4) for a second opinion.
+    """
     cv = application.cv_documents[0] if application.cv_documents else None
     if cv is None:
         raise ValueError("No CV document found for this application")
@@ -54,17 +92,27 @@ def screen_application(db: Session, application: Application) -> ScreeningResult
         cv.extraction_status = ExtractionStatus.COMPLETED
 
     job = application.job
-    state = ScreeningState(
+    result = _run_graph(
         cv_text=cv_text,
         job_title=job.title,
         job_description=_build_job_description(application),
         application_id=application.application_id,
         candidate_id=str(application.candidate_id),
-        ai_mode=True,
-        model=f"ollama/{settings.OLLAMA_MODEL}",
+        model=settings.OLLAMA_EVALUATION_MODEL,
     )
 
-    result = graph.invoke(state.as_plain())
+    fallback_used = False
+    if _is_uncertain(result):
+        fallback_used = True
+        result = _run_graph(
+            cv_text=cv_text,
+            job_title=job.title,
+            job_description=_build_job_description(application),
+            application_id=application.application_id,
+            candidate_id=str(application.candidate_id),
+            model=settings.OLLAMA_FALLBACK_EVALUATION_MODEL,
+        )
+
     recomm = result["recommendation"]
     matched = [
         {
@@ -103,9 +151,16 @@ def screen_application(db: Session, application: Application) -> ScreeningResult
             "items": uncertain,
             "requires_hr_review": recomm.requires_hr_review,
         },
-        model=result.get("model") or f"ollama/{settings.OLLAMA_MODEL}",
+        model=result.get("model") or f"ollama/{settings.OLLAMA_EVALUATION_MODEL}",
         hr_decision=HRDecision.PENDING,
     )
+    if fallback_used:
+        screening.evidence = {
+            **screening.evidence,
+            "fallback_used": True,
+            "fallback_model": f"ollama/{settings.OLLAMA_FALLBACK_EVALUATION_MODEL}",
+        }
+
     db.add(screening)
 
     from app.db.models.application import ApplicationStatusHistory

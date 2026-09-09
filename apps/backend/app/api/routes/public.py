@@ -36,21 +36,21 @@ router = APIRouter(prefix="/public", tags=["Public"])
 async def extract_cv(
     file: UploadFile = File(...),
 ):
-    """OCR a CV with DeepSeek-OCR and return a structured candidate profile.
+    """Extract the full text layer from a CV and return a structured candidate profile.
 
-    Used by the public apply form to pre-fill the application fields. The
-    profile is NOT persisted here — the user reviews/edits it before submit.
+    Used by the public apply form to pre-fill the application fields. No OCR —
+    reads the native PDF/DOCX/TXT text layer. The profile is NOT persisted here
+    — the user reviews/edits it before submit.
     """
     validate_cv_file(file)
     contents = await file.read()
     validate_file_size(contents)
 
-    profile = extraction_service.extract_profile_with_ocr(
+    result = extraction_service.extract_profile_from_cv(
         contents,
         file.filename or "cv.pdf",
-        dpi=settings.OCR_PAGE_DPI,
     )
-    return {"profile": profile}
+    return {"profile": result["profile"], "text": result["text"]}
 
 
 @router.get("/jobs", response_model=list[JobOut])
@@ -81,6 +81,7 @@ async def apply_for_job(
     skills: str | None = Form(default=None),
     education: str | None = Form(default=None),
     experience: str | None = Form(default=None),
+    profile_data: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     job = job_service.get_open_job(db, job_id)
@@ -95,6 +96,7 @@ async def apply_for_job(
         skills=skills,
         education=education,
         experience=experience,
+        profile_data=profile_data,
     )
 
     contents = await file.read()

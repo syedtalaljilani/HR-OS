@@ -11,8 +11,9 @@ import urllib.request
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-minilm")
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "5m")
 
-CHAT_TIMEOUT = 90
+CHAT_TIMEOUT = 120
 EMBED_TIMEOUT = 90
 
 
@@ -38,14 +39,20 @@ def chat_json(
     messages: list[dict],
     model: str | None = None,
     temperature: float = 0.0,
+    max_tokens: int | None = None,
+    keep_alive: str | None = None,
 ) -> dict:
     """Call Ollama /api/chat and return parsed JSON. Raises AIUnavailable."""
+    options: dict = {"temperature": temperature}
+    if max_tokens:
+        options["num_predict"] = max_tokens
     payload = {
         "model": model or OLLAMA_MODEL,
         "messages": messages,
         "format": "json",
         "stream": False,
-        "options": {"temperature": temperature},
+        "keep_alive": keep_alive or OLLAMA_KEEP_ALIVE,
+        "options": options,
     }
     body = _request(f"{OLLAMA_URL}/api/chat", payload, CHAT_TIMEOUT)
     content = body.get("message", {}).get("content", "")

@@ -62,8 +62,21 @@ def auto_evaluate_application(db: Session, application: Application) -> dict:
     # threshold) who also have unresolved uncertainties — those go to HR.
     if score < threshold and (not requires_human or score < floor):
         rank, total_candidates = application_rank_in_job(db, application)
-        detail = _rejection_reason(application, screening, score)
+        detail = _rejection_reason(application, screening)
         reason = f"AI auto-rejection (score {score:.0f}/100 below {threshold}): {detail}"
+        email_subject = None
+        email_body = None
+        try:
+            draft = _draft_rejection_email(
+                db, application, screening, detail, rank, total_candidates
+            )
+            email_subject = draft.get("subject")
+            email_body = draft.get("body")
+        except Exception:
+            logger.exception(
+                "AI email draft failed for %s; using deterministic body",
+                application.application_id,
+            )
         application_service.change_status(
             db,
             application,
@@ -76,6 +89,8 @@ def auto_evaluate_application(db: Session, application: Application) -> dict:
                 "rank": rank,
                 "total_candidates": total_candidates,
             },
+            email_subject=email_subject,
+            email_body=email_body,
             send_email=True,
         )
 
@@ -112,12 +127,13 @@ def _requires_human_review(screening: ScreeningResult) -> bool:
     return False
 
 
-def _rejection_reason(
-    application: Application, screening: ScreeningResult, score: float
-) -> str:
-    """Build a human-readable reason from the screening evidence."""
-    total_score = round(score)
+def _rejection_reason(application: Application, screening: ScreeningResult) -> str:
+    """Build a candidate-facing rejection reason from the screening evidence.
 
+    Deliberately excludes internal score / threshold / AI wording so the text
+    can be safely included in an email to the candidate while staying detailed
+    about which requirements were not met.
+    """
     evidence = screening.evidence or {}
     items = evidence.get("items") or []
 
@@ -128,14 +144,49 @@ def _rejection_reason(
             if req:
                 missing.append(req)
 
-    threshold = settings.AUTO_REJECT_THRESHOLD
-
     if missing:
-        reason = f"The profile did not match the job requirements (score {total_score}/100, below the {threshold} threshold). Missing: {', '.join(missing[:6])}."
-    else:
-        reason = f"The profile did not meet the required match level for this role (score {total_score}/100, below the {threshold} threshold)."
+        return (
+            "After reviewing your application, we could not see clear evidence of "
+            "several key requirements for this role: "
+            + ", ".join(missing[:6])
+            + "."
+        )
+    return (
+        "After reviewing your application, we felt your profile did not align "
+        "closely enough with the requirements of this role."
+    )
 
-    return reason
+
+def _draft_rejection_email(
+    db: Session, application: Application, screening: ScreeningResult, reason: str, rank: int, total: int
+) -> dict:
+    """Draft an AI-generated rejection email (subject + body) with the email model.
+
+    The reason (already candidate-facing) is rephrased into a warm message, and
+    the missing requirements are provided as context so the email stays detailed
+    but never leaks internal AI score/rank (architecture/evaluation.md).
+    """
+    from app.services import email_agent_service
+
+    evidence = screening.evidence or {}
+    items = evidence.get("items") or []
+    missing = [
+        str(item.get("requirement"))
+        for item in items
+        if isinstance(item, dict)
+        and item.get("status") == "MISSING"
+        and item.get("requirement")
+    ]
+
+    return email_agent_service.draft_email(
+        email_type="REJECTED",
+        candidate_name=application.candidate.full_name if application.candidate else None,
+        job_title=application.job.title if application.job else None,
+        reason=reason,
+        context={"missing": missing[:6]} if missing else {},
+        tone="warm",
+        db=db,
+    )
 
 
 def rank_applications(

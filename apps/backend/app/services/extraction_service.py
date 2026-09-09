@@ -1,6 +1,9 @@
-import base64
+import hashlib
 import io
 import re
+import threading
+import time
+from collections import OrderedDict
 from pathlib import Path
 
 from fastapi import HTTPException, status
@@ -12,6 +15,10 @@ from app.db.models.candidate import Candidate
 from app.db.models.enums import ExtractionStatus
 from app.db.models.job import Job
 from app.services import ai_client
+
+_PROFILE_CACHE_TTL_SECONDS = 3600
+_PROFILE_CACHE: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_PROFILE_CACHE_LOCK = threading.Lock()
 
 SKILL_KEYWORDS = [
     "python", "java", "javascript", "typescript", "c++", "c#", "sql", "postgresql",
@@ -68,45 +75,6 @@ def extract_text_from_cv(cv: CVDocument) -> str:
             detail=f"Failed to extract text: {e}",
         )
     raise HTTPException(status_code=400, detail="Unsupported CV file type")
-
-
-def _pdf_page_images(contents: bytes, dpi: int = 200) -> list[str]:
-    """Render each PDF page to a base64 PNG for vision OCR."""
-    import pymupdf
-
-    images: list[str] = []
-    doc = pymupdf.open(stream=contents, filetype="pdf")
-    for page in doc:
-        pix = page.get_pixmap(dpi=dpi)
-        images.append(base64.b64encode(pix.tobytes("png")).decode("ascii"))
-    doc.close()
-    return images
-
-
-def ocr_extract_text(contents: bytes, filename: str, dpi: int = 200) -> str:
-    """Extract text from a CV using DeepSeek-OCR (vision model) via Ollama.
-
-    Works on rendered page images, so it also handles scanned PDFs and
-    image-based documents. Falls back to the text layer when available.
-    """
-    suffix = Path(filename).suffix.lower()
-    if suffix == ".pdf":
-        try:
-            text_layer = extract_text_from_cv_bytes(contents, filename)
-            if len(text_layer) > 60:
-                return text_layer
-        except HTTPException:
-            pass
-    pages = _pdf_page_images(contents, dpi=dpi)
-    chunks = []
-    for page_b64 in pages:
-        try:
-            chunk = ai_client.ocr_image(page_b64)
-        except ai_client.AIUnavailable:
-            continue
-        if chunk:
-            chunks.append(chunk)
-    return "\n\n".join(chunks).strip()
 
 
 def extract_text_from_cv_bytes(contents: bytes, filename: str) -> str:
@@ -180,30 +148,60 @@ def extract_candidate_profile(text: str) -> dict:
                     "role": "system",
                     "content": (
                         "You extract structured candidate data from a CV. "
-                        "Return ONLY JSON with keys: name, email, phone, address, "
+                        "Return ONLY JSON with these keys: "
+                        "name, email, phone, address, expected_salary (string or null), "
+                        "summary (one short professional summary sentence or null), "
+                        "skills (array of plain skill names), "
+                        "languages (array of languages), interests (array), "
+                        "links (array of profile URLs), "
                         "education (array of objects with degree, institution, years), "
                         "experience (array of objects with position, company, years, description), "
-                        "skills (array of plain skill names, comma separated values flattened), "
-                        "expected_salary (string or null). "
-                        "If a value is unknown use null."
+                        "projects (array of objects with name, link, description), "
+                        "certifications (array of objects with name, issuer, year), "
+                        "publications (array of objects with title, publisher, year). "
+                        "Preserve every meaningful entry in the CV — do not skip or "
+                        "summarize lists. If a value is unknown use null. If a section "
+                        "does not exist in the CV use an empty array."
                     ),
                 },
                 {"role": "user", "content": text[:30000]},
-            ]
+            ],
+            model=settings.OLLAMA_PROFILE_MODEL or settings.OLLAMA_MODEL,
+            max_tokens=3000,
         )
         if isinstance(result, dict):
-            for key in ("name", "email", "phone", "address", "expected_salary"):
+            scalar_keys = ("name", "email", "phone", "address", "expected_salary", "summary")
+            list_keys = ("skills", "languages", "interests", "links")
+            object_keys = (
+                "education",
+                "experience",
+                "projects",
+                "certifications",
+                "publications",
+            )
+            for key in scalar_keys:
                 if key not in result:
                     result[key] = None
-            for key in ("education", "experience", "skills"):
+            for key in list_keys:
                 value = result.get(key)
                 if isinstance(value, str):
                     result[key] = [
-                        part.strip()
-                        for part in re.split(r"[,;]", value)
-                        if part.strip()
+                        part.strip() for part in re.split(r"[,;]", value) if part.strip()
                     ]
                 elif not isinstance(value, list):
+                    result[key] = []
+            for key in object_keys:
+                value = result.get(key)
+                if isinstance(value, str):
+                    result[key] = []
+                elif isinstance(value, list):
+                    result[key] = [
+                        item
+                        for item in value
+                        if isinstance(item, dict)
+                        or (isinstance(item, str) and item.strip())
+                    ]
+                else:
                     result[key] = []
             return result
     except ai_client.AIUnavailable:
@@ -213,13 +211,55 @@ def extract_candidate_profile(text: str) -> dict:
     return _fallback_extract_profile(text)
 
 
-def extract_profile_with_ocr(contents: bytes, filename: str, dpi: int = 200) -> dict:
-    """Extract a structured candidate profile from a CV using DeepSeek-OCR.
+def _cache_get(key: str) -> dict | None:
+    with _PROFILE_CACHE_LOCK:
+        item = _PROFILE_CACHE.get(key)
+        if item is None:
+            return None
+        timestamp, value = item
+        if time.time() - timestamp > _PROFILE_CACHE_TTL_SECONDS:
+            _PROFILE_CACHE.pop(key, None)
+            return None
+        _PROFILE_CACHE.move_to_end(key)
+        return value
 
-    OCRs rendered page images, then parses the text into structured fields.
+
+def _cache_put(key: str, value: dict) -> None:
+    with _PROFILE_CACHE_LOCK:
+        _PROFILE_CACHE[key] = (time.time(), value)
+        _PROFILE_CACHE.move_to_end(key)
+        while len(_PROFILE_CACHE) > settings.PROFILE_CACHE_SIZE:
+            _PROFILE_CACHE.popitem(last=False)
+
+
+def extract_profile_from_cv(contents: bytes, filename: str) -> dict:
+    """Extract the full native text layer from a CV and structure it.
+
+    No OCR — reads the embedded PDF/DOCX/TXT text layer (pypdf/docx), then
+    parses it into a structured profile with a small model. Identical files
+    (same SHA-256) are served from an in-memory cache — no model call.
+    Returns {"text": full CV text, "profile": structured profile}.
     """
-    text = ocr_extract_text(contents, filename, dpi=dpi)
-    return extract_candidate_profile(text)
+    cache_key = hashlib.sha256(contents).hexdigest()
+    text = extract_text_from_cv_bytes(contents, filename)
+    if len(text) < 60:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Could not read any text from this CV. It may be a scanned or "
+                "image-based PDF without a text layer. Please enter your details "
+                "manually instead."
+            ),
+        )
+
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    profile = extract_candidate_profile(text)
+    result = {"text": text, "profile": profile}
+    _cache_put(cache_key, result)
+    return result
 
 
 def validate_cv(text: str, profile: dict) -> dict:

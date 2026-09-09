@@ -14,6 +14,7 @@ import Modal, { EmptyState, ErrorNote } from "@/app/hr/_components/Modal";
 import { DetailSkeleton } from "@/app/hr/_components/Skeleton";
 import {
   api,
+  draftEmailWithAI,
   formatDate,
   formatMoney,
   formatStatus,
@@ -110,6 +111,7 @@ export default function CandidateDetailPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [previewCv, setPreviewCv] = useState<CVDocument | null>(null);
+  const [aiDrafting, setAiDrafting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -219,6 +221,32 @@ export default function CandidateDetailPage() {
       setError(caught instanceof Error ? caught.message : "Action failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function aiEmailAssist() {
+    if (!detail) return;
+    setAiDrafting(true);
+    setError(null);
+    try {
+      const draft = await draftEmailWithAI(detail.id, {
+        email_type: formData.type || undefined,
+        reason: formData.reason || undefined,
+        hr_notes: formData.hrNotes || undefined,
+        tone: formData.tone || undefined,
+      });
+      setFormData((prev) => ({
+        ...prev,
+        subject: draft.subject,
+        body: draft.body,
+      }));
+      setNotice("AI draft ready — review and edit before sending.");
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "AI draft could not be generated"
+      );
+    } finally {
+      setAiDrafting(false);
     }
   }
 
@@ -813,6 +841,44 @@ export default function CandidateDetailPage() {
                   ))}
                 </select>
               </Field>
+
+              <Field
+                label="AI instructions (optional)"
+                hint="Tell the AI what to say, e.g. 'mention we went with a more senior profile'"
+              >
+                <textarea
+                  rows={2}
+                  value={formData.hrNotes ?? ""}
+                  onChange={(event) =>
+                    setFormData({ ...formData, hrNotes: event.target.value })
+                  }
+                  className={inputClass()}
+                />
+              </Field>
+              <Field label="Tone (optional)">
+                <select
+                  value={formData.tone ?? ""}
+                  onChange={(event) =>
+                    setFormData({ ...formData, tone: event.target.value })
+                  }
+                  className={inputClass()}
+                >
+                  <option value="">Default</option>
+                  <option value="warm">Warm</option>
+                  <option value="firm">Firm / direct</option>
+                  <option value="professional">Professional</option>
+                </select>
+              </Field>
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  onClick={aiEmailAssist}
+                  loading={aiDrafting}
+                >
+                  ✨ AI draft
+                </Button>
+              </div>
+
               <Field label="Subject">
                 <input
                   value={formData.subject ?? ""}

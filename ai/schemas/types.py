@@ -4,7 +4,7 @@ These mirror the JSON schemas defined in docs/architecture/prompt.md.
 """
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 MatchStatus = Literal["MATCH", "PARTIAL", "MISSING", "UNCLEAR"]
 Severity = Literal["LOW", "MEDIUM", "HIGH"]
@@ -109,6 +109,38 @@ class JobRequirements(BaseModel):
             elif isinstance(entry, dict):
                 out.append(_entry_to_text(entry))
         return out
+
+    @model_validator(mode="after")
+    def _dedupe(self):
+        """Deduplicate requirements across overlapping fields (case-insensitive).
+
+        LLMs often repeat the same requirement in multiple fields (e.g.
+        mandatory + technical_skills + certifications). Duplicates inflate the
+        matching denominator and distort the final score, so keep only the
+        first occurrence in field order.
+        """
+        seen: set[str] = set()
+
+        def clean(items: list[str]) -> list[str]:
+            out: list[str] = []
+            for item in items:
+                key = item.strip().lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    out.append(item.strip())
+            return out
+
+        for field in (
+            "mandatory",
+            "preferred",
+            "technical_skills",
+            "education",
+            "experience",
+            "certifications",
+            "location",
+        ):
+            setattr(self, field, clean(getattr(self, field)))
+        return self
 
     def as_flat_list(self) -> list[str]:
         out: list[str] = []

@@ -1,0 +1,125 @@
+"""Adapter that runs the LangGraph email agent.
+
+The `ai` package lives at the repository root. The FastAPI backend runs from
+`apps/backend`, so we make the repo root importable here.
+"""
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from sqlalchemy.orm import Session
+
+from ai.graphs.email import graph
+from ai.schemas.email_state import EmailAgentState
+
+from app.core.config import settings
+from app.services import settings_service
+
+
+def _identity(db: Session | None) -> tuple[str, str]:
+    """(company_name, hr_name) from DB when available; env is the fallback."""
+    if db is not None:
+        try:
+            return settings_service.org_identity(db)
+        except Exception:
+            pass
+    return settings.COMPANY_NAME, settings.HR_NAME
+
+
+def _run(state: EmailAgentState) -> dict:
+    """Run the email graph and return {subject, body, model}."""
+    result = graph.invoke(state.as_plain())
+    draft = result.get("draft") or {}
+    return {
+        "subject": draft.get("subject", ""),
+        "body": draft.get("body", ""),
+        "model": result.get("model"),
+    }
+
+
+def _base_state(
+    *,
+    email_type: str | None,
+    candidate_name: str | None,
+    job_title: str | None,
+    reason: str | None,
+    context: dict | None,
+    hr_notes: str | None,
+    tone: str | None,
+    db: Session | None = None,
+) -> EmailAgentState:
+    """Shared state: email drafting runs on the dedicated tiny EMAIL_MODEL and
+    signs off with the configured company / HR identity (DB first, env fallback)."""
+    company_name, hr_name = _identity(db)
+    return EmailAgentState(
+        email_type=email_type,
+        candidate_name=candidate_name,
+        job_title=job_title,
+        reason=reason,
+        context=context or {},
+        hr_notes=hr_notes,
+        tone=tone,
+        company_name=company_name or None,
+        hr_name=hr_name or None,
+        ai_mode=True,
+        model=f"ollama/{settings.EMAIL_MODEL}",
+    )
+
+
+def draft_email(
+    *,
+    email_type: str | None = None,
+    candidate_name: str | None = None,
+    job_title: str | None = None,
+    reason: str | None = None,
+    context: dict | None = None,
+    hr_notes: str | None = None,
+    tone: str | None = None,
+    db: Session | None = None,
+) -> dict:
+    """Draft a recruitment email (subject + body) using the dedicated email model.
+
+    ``db`` optionally provides the company/HR identity from Settings; otherwise
+    the environment fallback values are used.
+
+    Returns a dict shaped like:
+        {"subject": str, "body": str, "model": str | None}
+    The draft is NOT persisted here — the caller reviews then sends.
+    """
+    state = _base_state(
+        email_type=email_type,
+        candidate_name=candidate_name,
+        job_title=job_title,
+        reason=reason,
+        context=context,
+        hr_notes=hr_notes,
+        tone=tone,
+        db=db,
+    )
+    return _run(state)
+
+
+def assist_hr_email(
+    *,
+    hr_notes: str,
+    candidate_name: str | None = None,
+    job_title: str | None = None,
+    email_type: str | None = None,
+    tone: str | None = None,
+    db: Session | None = None,
+) -> dict:
+    """HR email-writing assistant. Turns free-form HR notes into a draft."""
+    state = _base_state(
+        email_type=email_type,
+        candidate_name=candidate_name,
+        job_title=job_title,
+        reason=None,
+        context=None,
+        hr_notes=hr_notes,
+        tone=tone,
+        db=db,
+    )
+    return _run(state)

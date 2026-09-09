@@ -13,6 +13,7 @@ from app.db.models.enums import (
     Recommendation,
 )
 from app.db.models.job import Job
+from app.core.config import settings
 from app.services import ai_client, extraction_service
 
 STOPWORDS = {
@@ -136,7 +137,8 @@ def _screen_requirements_ai(requirements: list[str], cv_text: str, job_title: st
                     + "\n".join(f"- {r}" for r in requirements)
                     + f"\n\nJob title: {job_title}\n\nCV:\n{cv_text[:6000]}",
                 },
-            ]
+            ],
+            model=settings.OLLAMA_EVALUATION_MODEL,
         )
         items = result.get("results") or result.get("matches") or result.get("requirements")
         if isinstance(items, list) and items and "status" in items[0]:

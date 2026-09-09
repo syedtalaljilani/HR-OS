@@ -32,6 +32,7 @@ def record_email(
         type=email_type,
         recipient=recipient,
         subject=subject,
+        body=body,
         status=EmailStatus.PENDING,
     )
     db.add(email)
@@ -40,12 +41,15 @@ def record_email(
         try:
             _deliver(email, body)
         except Exception:
-            email.status = EmailStatus.FAILED
-            logger.exception(
-                "Failed to deliver %s email to %s",
-                _friendly_email_type(email.type),
-                email.recipient,
-            )
+            try:
+                _deliver(email, body)
+            except Exception:
+                email.status = EmailStatus.FAILED
+                logger.exception(
+                    "Failed to deliver %s email to %s",
+                    _friendly_email_type(email.type),
+                    email.recipient,
+                )
     db.commit()
     db.refresh(email)
     return email
@@ -155,3 +159,87 @@ def application_email_body(
         "application status, including the evaluation result, by email.\n\n"
         "Best regards,\nHR OS"
     )
+
+
+def _rebuild_email_body_for(
+    application, email_type: EmailType, email: Email
+) -> str:
+    """Reconstruct an email body from the linked application.
+
+    For REJECTED emails carry over the AI score, rank and the rejection reason
+    found in the status history so the original meaning survives a retry.
+    """
+    score = rank = total_candidates = None
+    reason = None
+
+    if email_type == EmailType.REJECTED:
+        screening = application.screening_results[-1] if application.screening_results else None
+        if screening is not None and screening.score is not None:
+            try:
+                score = float(screening.score)
+            except (TypeError, ValueError):
+                pass
+        history = sorted(
+            (h for h in application.status_history or []),
+            key=lambda h: h.created_at,
+        )
+        for h in reversed(history):
+            if h.to_status == "REJECTED" and h.reason:
+                reason = h.reason
+                break
+
+    return application_email_body(
+        application,
+        email_type,
+        reason=reason,
+        score=score,
+        rank=rank,
+        total_candidates=total_candidates,
+    )
+
+
+def flush_pending_emails(
+    db: Session, limit: int = 50
+) -> dict:
+    """Re-attempt delivery for emails that are stuck in PENDING or FAILED.
+
+    Uses the stored body when available; otherwise regenerates the body from
+    the linked application so the proper reason is preserved. Returns a summary
+    of delivery attempts.
+    """
+    from app.db.models.application import Application
+
+    pending = (
+        db.query(Email)
+        .filter(Email.status.in_([EmailStatus.PENDING, EmailStatus.FAILED]))
+        .order_by(Email.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+    sent = 0
+    failed: list[str] = []
+    for email in pending:
+        body = email.body
+        if not body and email.application_id:
+            application = db.get(Application, email.application_id)
+            if application is not None:
+                body = _rebuild_email_body_for(application, email.type, email)
+                email.body = body
+        if not body:
+            failed.append(f"{email.id}: no body available")
+            continue
+        try:
+            _deliver(email, body)
+            sent += 1
+        except Exception:
+            email.status = EmailStatus.FAILED
+            failed.append(f"{email.id}: {email.recipient}")
+            logger.exception(
+                "Failed to re-deliver %s email to %s",
+                _friendly_email_type(email.type),
+                email.recipient,
+            )
+
+    db.commit()
+    return {"attempted": len(pending), "sent": sent, "failed": failed}

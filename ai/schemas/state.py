@@ -41,6 +41,9 @@ class ScreeningState(BaseModel):
     errors: list[str] = Field(default_factory=list)
     prompt_versions: dict[str, str] = Field(default_factory=dict)
     model: str | None = None
+    # Optional separate (smaller/faster) model for CV extraction while the
+    # evaluation-model runs the screening "brain" nodes.
+    profile_model: str | None = None
     requires_hr_review: bool = False
 
     def as_plain(self) -> dict[str, Any]:

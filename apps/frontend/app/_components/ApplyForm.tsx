@@ -21,13 +21,96 @@ type ExtractedProfile = {
   phone: string | null;
   address: string | null;
   expected_salary: string | null;
+  summary: string | null;
+  skills?: unknown[];
+  languages?: unknown[];
+  interests?: unknown[];
+  links?: unknown[];
   education?: unknown[];
   experience?: unknown[];
-  skills?: string[];
+  projects?: unknown[];
+  certifications?: unknown[];
+  publications?: unknown[];
 };
 
-type EducationItem = { degree: string; institution: string; years: string };
-type ExperienceItem = { position: string; company: string; years: string; description: string };
+type ObjectSectionDef = {
+  key: string;
+  label: string;
+  fields: { key: string; label: string; placeholder: string; full?: boolean }[];
+  empty: Record<string, string>;
+};
+
+const OBJECT_SECTIONS: ObjectSectionDef[] = [
+  {
+    key: "education",
+    label: "Education",
+    fields: [
+      { key: "degree", label: "Degree", placeholder: "e.g. BSCS" },
+      { key: "institution", label: "Institution", placeholder: "University / college" },
+      { key: "years", label: "Years", placeholder: "e.g. 2020 – 2024" },
+    ],
+    empty: { degree: "", institution: "", years: "" },
+  },
+  {
+    key: "experience",
+    label: "Work experience",
+    fields: [
+      { key: "position", label: "Position", placeholder: "e.g. Senior AI Engineer" },
+      { key: "company", label: "Company", placeholder: "Company name" },
+      { key: "years", label: "Years", placeholder: "e.g. Jan 2025 – Oct 2025" },
+      {
+        key: "description",
+        label: "Description",
+        placeholder: "What you did…",
+        full: true,
+      },
+    ],
+    empty: { position: "", company: "", years: "", description: "" },
+  },
+  {
+    key: "projects",
+    label: "Projects",
+    fields: [
+      { key: "name", label: "Project", placeholder: "Project name" },
+      { key: "link", label: "Link", placeholder: "URL (optional)" },
+      {
+        key: "description",
+        label: "Description",
+        placeholder: "What it is…",
+        full: true,
+      },
+    ],
+    empty: { name: "", link: "", description: "" },
+  },
+  {
+    key: "certifications",
+    label: "Certifications",
+    fields: [
+      { key: "name", label: "Certification", placeholder: "e.g. AWS Certified Developer" },
+      { key: "issuer", label: "Issuer", placeholder: "Issuing body" },
+      { key: "year", label: "Year", placeholder: "e.g. 2025" },
+    ],
+    empty: { name: "", issuer: "", year: "" },
+  },
+  {
+    key: "publications",
+    label: "Publications",
+    fields: [
+      { key: "title", label: "Title", placeholder: "Paper / article title", full: true },
+      { key: "publisher", label: "Publisher / venue", placeholder: "Where it was published" },
+      { key: "year", label: "Year", placeholder: "e.g. 2025" },
+    ],
+    empty: { title: "", publisher: "", year: "" },
+  },
+];
+
+type ListSectionDef = { key: string; label: string; placeholder: string };
+
+const LIST_SECTIONS: ListSectionDef[] = [
+  { key: "skills", label: "Skills", placeholder: "e.g. Python, React, PostgreSQL" },
+  { key: "languages", label: "Languages", placeholder: "e.g. English, Urdu" },
+  { key: "interests", label: "Interests", placeholder: "e.g. AI research, open source" },
+];
 
 const STEP_LABELS = ["Upload CV", "Confirm details", "Submit"];
 
@@ -80,6 +163,22 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m-7-7h14" />
+    </svg>
+  );
+}
+
+function RemoveIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
 function ProcessingPanel({ status }: { status: "extracting" | "processing" }) {
   const isExtracting = status === "extracting";
   return (
@@ -98,12 +197,49 @@ function ProcessingPanel({ status }: { status: "extracting" | "processing" }) {
       </h3>
       <p className="mt-1 text-sm text-zinc-500">
         {isExtracting
-          ? "AI is extracting your details (name, email, phone, skills). It usually takes a few seconds."
+          ? "AI is extracting your full CV (contact, skills, education, experience, projects, certifications). It usually takes a few seconds."
           : "This usually takes a few seconds."}
       </p>
     </div>
   );
 }
+
+function toStringList(raw?: unknown[]): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((s) => String(s)).filter((s) => s.trim() !== "");
+}
+
+function toObjectList(raw: unknown[] | undefined, keys: string[] = []): Record<string, string>[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    const item = typeof entry === "string" ? {} : (entry as Record<string, unknown>);
+    return keys.reduce<Record<string, string>>((acc, key) => {
+      const value = item?.[key];
+      acc[key] = value === undefined || value === null ? "" : String(value);
+      return acc;
+    }, {});
+  });
+}
+
+function parseChips(text: string): string[] {
+  return text
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const INITIAL_OBJECT_SECTIONS = OBJECT_SECTIONS.reduce<Record<string, Record<string, string>[]>>(
+  (acc, def) => {
+    acc[def.key] = [];
+    return acc;
+  },
+  {}
+);
+
+const INITIAL_LIST_SECTIONS = LIST_SECTIONS.reduce<Record<string, string[]>>((acc, def) => {
+  acc[def.key] = [];
+  return acc;
+}, {});
 
 export default function ApplyForm({
   jobId,
@@ -121,33 +257,12 @@ export default function ApplyForm({
   const [phone, setPhone] = useState("");
   const [expectedSalary, setExpectedSalary] = useState("");
   const [address, setAddress] = useState("");
-  const [skills, setSkills] = useState<string[]>([]);
-  const [education, setEducation] = useState<EducationItem[]>([]);
-  const [experience, setExperience] = useState<ExperienceItem[]>([]);
+  const [summary, setSummary] = useState("");
+  const [listSections, setListSections] =
+    useState<Record<string, string[]>>(INITIAL_LIST_SECTIONS);
+  const [objectSections, setObjectSections] =
+    useState<Record<string, Record<string, string>[]>>(INITIAL_OBJECT_SECTIONS);
   const [consent, setConsent] = useState(false);
-
-  const skillsText = skills.join(", ");
-
-  function updateSkills(text: string) {
-    setSkills(
-      text
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    );
-  }
-
-  function updateEducation(index: number, field: keyof EducationItem, value: string) {
-    setEducation((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
-    );
-  }
-
-  function updateExperience(index: number, field: keyof ExperienceItem, value: string) {
-    setExperience((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
-    );
-  }
 
   function setProfileReset() {
     setFullName("");
@@ -155,9 +270,38 @@ export default function ApplyForm({
     setPhone("");
     setExpectedSalary("");
     setAddress("");
-    setSkills([]);
-    setEducation([]);
-    setExperience([]);
+    setSummary("");
+    setListSections(INITIAL_LIST_SECTIONS);
+    setObjectSections(INITIAL_OBJECT_SECTIONS);
+  }
+
+  function updateObject(sectionKey: string, index: number, field: string, value: string) {
+    setObjectSections((prev) => ({
+      ...prev,
+      [sectionKey]: prev[sectionKey].map((item, i) =>
+        i === index ? { ...item, [field]: value } : item
+      ),
+    }));
+  }
+
+  function addObjectSection(sectionKey: string) {
+    const def = OBJECT_SECTIONS.find((d) => d.key === sectionKey);
+    if (!def) return;
+    setObjectSections((prev) => ({
+      ...prev,
+      [sectionKey]: [...prev[sectionKey], { ...def.empty }],
+    }));
+  }
+
+  function removeObjectSection(sectionKey: string, index: number) {
+    setObjectSections((prev) => ({
+      ...prev,
+      [sectionKey]: prev[sectionKey].filter((_, i) => i !== index),
+    }));
+  }
+
+  function updateList(sectionKey: string, text: string) {
+    setListSections((prev) => ({ ...prev, [sectionKey]: parseChips(text) }));
   }
 
   async function onFileChange(file: File | null) {
@@ -188,9 +332,19 @@ export default function ApplyForm({
       setPhone(p.phone ?? "");
       setAddress(p.address ?? "");
       setExpectedSalary(p.expected_salary ?? "");
-      setSkills(Array.isArray(p.skills) ? p.skills.filter((s) => typeof s === "string") : []);
-      setEducation(toEducationItems(p.education));
-      setExperience(toExperienceItems(p.experience));
+      setSummary(p.summary ?? "");
+      setListSections({
+        skills: toStringList(p.skills),
+        languages: toStringList(p.languages),
+        interests: toStringList(p.interests),
+      });
+      setObjectSections({
+        education: toObjectList(p.education, ["degree", "institution", "years"]),
+        experience: toObjectList(p.experience, ["position", "company", "years", "description"]),
+        projects: toObjectList(p.projects, ["name", "link", "description"]),
+        certifications: toObjectList(p.certifications, ["name", "issuer", "year"]),
+        publications: toObjectList(p.publications, ["title", "publisher", "year"]),
+      });
       setState({ status: "idle" });
       setStep(1);
     } catch {
@@ -214,10 +368,36 @@ export default function ApplyForm({
     body.append("phone", phone.trim());
     body.append("expected_salary", expectedSalary.trim());
     body.append("address", address.trim());
-    body.append("skills", skillsText);
-    body.append("education", JSON.stringify(education));
-    body.append("experience", JSON.stringify(experience));
+    body.append("summary", summary.trim());
+    body.append("skills", listSections.skills.join(", "));
+    body.append("languages", listSections.languages.join(", "));
+    body.append("interests", listSections.interests.join(", "));
+    for (const def of OBJECT_SECTIONS) {
+      body.append(def.key, JSON.stringify(objectSections[def.key]));
+    }
     body.append("consent", consent ? "true" : "false");
+    body.append(
+      "profile_data",
+      JSON.stringify({
+        name: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        expected_salary: expectedSalary.trim(),
+        summary: summary.trim(),
+        ...LIST_SECTIONS.reduce<Record<string, string[]>>((acc, def) => {
+          acc[def.key] = listSections[def.key];
+          return acc;
+        }, {}),
+        ...OBJECT_SECTIONS.reduce<Record<string, Record<string, string>[]>>(
+          (acc, def) => {
+            acc[def.key] = objectSections[def.key];
+            return acc;
+          },
+          {}
+        ),
+      })
+    );
 
     try {
       const res = await fetch(`${API_BASE}/public/jobs/${jobId}/apply`, {
@@ -251,34 +431,7 @@ export default function ApplyForm({
     }
   }
 
-  function toEducationItems(raw?: unknown[]): EducationItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry) => {
-    const item =
-      typeof entry === "string" ? {} : (entry as Record<string, unknown>);
-    return {
-      degree: item?.degree ? String(item.degree) : "",
-      institution: item?.institution ? String(item.institution) : "",
-      years: item?.years ? String(item.years) : "",
-    };
-  });
-}
-
-function toExperienceItems(raw?: unknown[]): ExperienceItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry) => {
-    const item =
-      typeof entry === "string" ? {} : (entry as Record<string, unknown>);
-    return {
-      position: item?.position ? String(item.position) : "",
-      company: item?.company ? String(item.company) : "",
-      years: item?.years ? String(item.years) : "",
-      description: item?.description ? String(item.description) : "",
-    };
-  });
-}
-
-if (state.status === "extracting" || state.status === "processing") {
+  if (state.status === "extracting" || state.status === "processing") {
     return <ProcessingPanel status={state.status} />;
   }
 
@@ -324,8 +477,8 @@ if (state.status === "extracting" || state.status === "processing") {
               Upload your CV
             </legend>
             <p className="text-sm text-zinc-600">
-              We&apos;ll automatically read your details from the CV and pre-fill
-              the application form for you.
+              We&apos;ll automatically read your full CV and build the
+              application form for you — simply confirm the details.
             </p>
             <FileUpload
               name="file"
@@ -338,6 +491,18 @@ if (state.status === "extracting" || state.status === "processing") {
                 {state.error}
               </p>
             ) : null}
+            {cvFile ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setState({ status: "idle", error: undefined });
+                  setStep(1);
+                }}
+                className="inline-flex w-fit items-center text-sm font-medium text-violet-600 hover:text-violet-800"
+              >
+                Or enter your details manually
+              </button>
+            ) : null}
           </fieldset>
         ) : null}
 
@@ -347,8 +512,8 @@ if (state.status === "extracting" || state.status === "processing") {
               Confirm your details
             </legend>
             <p className="-mt-2 text-sm text-zinc-500">
-              These were read from your CV. Please correct anything that is
-              wrong before continuing.
+              These were read from your CV. Correct anything that is wrong
+              before continuing.
             </p>
             <div>
               <FieldLabel htmlFor="full_name">Full name *</FieldLabel>
@@ -409,159 +574,131 @@ if (state.status === "extracting" || state.status === "processing") {
               />
             </div>
 
-            <div>
-              <FieldLabel htmlFor="skills">Skills (comma-separated)</FieldLabel>
-              <textarea
-                id="skills"
-                name="skills"
-                rows={2}
-                value={skillsText}
-                onChange={(event) => updateSkills(event.target.value)}
-                className={inputClass}
-              />
-            </div>
+            {summary ? (
+              <div>
+                <FieldLabel htmlFor="summary">Professional summary</FieldLabel>
+                <textarea
+                  id="summary"
+                  name="summary"
+                  rows={3}
+                  value={summary}
+                  onChange={(event) => setSummary(event.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            ) : null}
 
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-zinc-700">Education</p>
-              {education.map((entry, index) => (
-                <div
-                  key={index}
-                  className="grid gap-2 border border-zinc-200 bg-zinc-50/50 p-3 sm:grid-cols-[2fr_2fr_1fr_auto]"
-                >
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500" htmlFor={`edu_degree_${index}`}>
-                      Degree
-                    </label>
-                    <input
-                      id={`edu_degree_${index}`}
-                      value={entry.degree}
-                      onChange={(e) => updateEducation(index, "degree", e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500" htmlFor={`edu_institution_${index}`}>
-                      Institution
-                    </label>
-                    <input
-                      id={`edu_institution_${index}`}
-                      value={entry.institution}
-                      onChange={(e) => updateEducation(index, "institution", e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500" htmlFor={`edu_years_${index}`}>
-                      Years
-                    </label>
-                    <input
-                      id={`edu_years_${index}`}
-                      value={entry.years}
-                      onChange={(e) => updateEducation(index, "years", e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
+            {OBJECT_SECTIONS.map((def) => {
+              const items = objectSections[def.key];
+              if (items.length === 0) return null;
+              return (
+                <div key={def.key} className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-zinc-700">{def.label}</p>
+                  {items.map((entry, index) => (
+                    <div
+                      key={index}
+                      className="grid gap-2 border border-zinc-200 bg-zinc-50/50 p-3 sm:grid-cols-3"
+                    >
+                      {def.fields.map((field) => (
+                        <div
+                          key={field.key}
+                          className={field.full ? "sm:col-span-3" : "sm:col-span-1"}
+                        >
+                          <label
+                            className="mb-1 block text-xs text-zinc-500"
+                            htmlFor={`${def.key}_${index}_${field.key}`}
+                          >
+                            {field.label}
+                          </label>
+                          {field.full ? (
+                            <textarea
+                              id={`${def.key}_${index}_${field.key}`}
+                              rows={2}
+                              value={entry[field.key]}
+                              placeholder={field.placeholder}
+                              onChange={(e) =>
+                                updateObject(def.key, index, field.key, e.target.value)
+                              }
+                              className={inputClass}
+                            />
+                          ) : (
+                            <input
+                              id={`${def.key}_${index}_${field.key}`}
+                              value={entry[field.key]}
+                              placeholder={field.placeholder}
+                              onChange={(e) =>
+                                updateObject(def.key, index, field.key, e.target.value)
+                              }
+                              className={inputClass}
+                            />
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${def.label} entry`}
+                        onClick={() => removeObjectSection(def.key, index)}
+                        className="justify-self-end p-2 text-zinc-400 hover:text-rose-600 sm:col-span-3"
+                      >
+                        <RemoveIcon />
+                      </button>
+                    </div>
+                  ))}
                   <button
                     type="button"
-                    aria-label="Remove education entry"
-                    onClick={() =>
-                      setEducation((prev) => prev.filter((_, i) => i !== index))
-                    }
-                    className="self-end p-2 text-zinc-400 hover:text-rose-600"
+                    onClick={() => addObjectSection(def.key)}
+                    className="inline-flex w-fit items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-800"
                   >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
+                    <PlusIcon />
+                    Add {def.label.toLowerCase()}
                   </button>
                 </div>
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  setEducation((prev) => [
-                    ...prev,
-                    { degree: "", institution: "", years: "" },
-                  ])
-                }
-                className="inline-flex w-fit items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-800"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m-7-7h14" />
-                </svg>
-                Add education
-              </button>
-            </div>
+              );
+            })}
 
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-zinc-700">Work experience</p>
-              {experience.map((entry, index) => (
-                <div
-                  key={index}
-                  className="grid gap-2 border border-zinc-200 bg-zinc-50/50 p-3 sm:grid-cols-[2fr_2fr_1fr_auto]"
-                >
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500" htmlFor={`exp_position_${index}`}>
-                      Position
-                    </label>
-                    <input
-                      id={`exp_position_${index}`}
-                      value={entry.position}
-                      onChange={(e) => updateExperience(index, "position", e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500" htmlFor={`exp_company_${index}`}>
-                      Company
-                    </label>
-                    <input
-                      id={`exp_company_${index}`}
-                      value={entry.company}
-                      onChange={(e) => updateExperience(index, "company", e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-zinc-500" htmlFor={`exp_years_${index}`}>
-                      Years
-                    </label>
-                    <input
-                      id={`exp_years_${index}`}
-                      value={entry.years}
-                      onChange={(e) => updateExperience(index, "years", e.target.value)}
-                      className={inputClass}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Remove experience entry"
-                    onClick={() =>
-                      setExperience((prev) => prev.filter((_, i) => i !== index))
-                    }
-                    className="self-end p-2 text-zinc-400 hover:text-rose-600"
-                  >
-                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() =>
-                  setExperience((prev) => [
-                    ...prev,
-                    { position: "", company: "", years: "", description: "" },
-                  ])
-                }
-                className="inline-flex w-fit items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-800"
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m-7-7h14" />
-                </svg>
-                Add experience
-              </button>
-            </div>
+            {LIST_SECTIONS.map((def) => (
+              <div key={def.key}>
+                <FieldLabel htmlFor={def.key}>{def.label}</FieldLabel>
+                {def.key === "skills" ? (
+                  <textarea
+                    id={def.key}
+                    name={def.key}
+                    rows={2}
+                    value={listSections[def.key].join(", ")}
+                    placeholder={def.placeholder}
+                    onChange={(event) => updateList(def.key, event.target.value)}
+                    className={inputClass}
+                  />
+                ) : (
+                  <input
+                    id={def.key}
+                    name={def.key}
+                    value={listSections[def.key].join(", ")}
+                    placeholder={def.placeholder}
+                    onChange={(event) => updateList(def.key, event.target.value)}
+                    className={inputClass}
+                  />
+                )}
+              </div>
+            ))}
+
+            {OBJECT_SECTIONS.some((def) => objectSections[def.key].length > 0) ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {OBJECT_SECTIONS.filter((def) => objectSections[def.key].length === 0).map(
+                  (def) => (
+                    <button
+                      key={def.key}
+                      type="button"
+                      onClick={() => addObjectSection(def.key)}
+                      className="inline-flex items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-800"
+                    >
+                      <PlusIcon />
+                      Add {def.label.toLowerCase()}
+                    </button>
+                  )
+                )}
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-between pt-2">
               <span className="text-sm text-zinc-500">
@@ -597,29 +734,38 @@ if (state.status === "extracting" || state.status === "processing") {
             </legend>
 
             <dl className="divide-y divide-zinc-200 border border-zinc-200 bg-zinc-50/50">
-              {[
-                { label: "Name", value: fullName },
-                { label: "Email", value: email },
-                { label: "Phone", value: phone },
-                { label: "Expected salary", value: expectedSalary },
-                { label: "Address", value: address },
-                { label: "Skills", value: skillsText },
-                {
-                  label: "Education",
-                  value: education
-                    .filter((e) => e.degree || e.institution)
-                    .map((e) => [e.degree, e.institution, e.years].filter(Boolean).join(" · "))
-                    .join("; "),
-                },
-                {
-                  label: "Experience",
-                  value: experience
-                    .filter((e) => e.position || e.company)
-                    .map((e) => [e.position, e.company, e.years].filter(Boolean).join(" · "))
-                    .join("; "),
-                },
-                { label: "CV", value: cvFile?.name },
-              ].map((row) => (
+              {(() => {
+                const rows: { label: string; value: string }[] = [
+                  { label: "Name", value: fullName },
+                  { label: "Email", value: email },
+                  { label: "Phone", value: phone },
+                  { label: "Expected salary", value: expectedSalary },
+                  { label: "Address", value: address },
+                ];
+                if (summary.trim()) {
+                  rows.push({ label: "Professional summary", value: summary });
+                }
+                for (const def of OBJECT_SECTIONS) {
+                  const items = objectSections[def.key].filter((entry) =>
+                    Object.values(entry).some((v) => v.trim() !== "")
+                  );
+                  if (items.length === 0) continue;
+                  rows.push({
+                    label: def.label,
+                    value: items
+                      .map((entry) =>
+                        Object.values(entry).filter((v) => v.trim() !== "").join(" · ")
+                      )
+                      .join("; "),
+                  });
+                }
+                for (const def of LIST_SECTIONS) {
+                  if (listSections[def.key].length === 0) continue;
+                  rows.push({ label: def.label, value: listSections[def.key].join(", ") });
+                }
+                rows.push({ label: "CV", value: cvFile?.name ?? "" });
+                return rows;
+              })().map((row) => (
                 <div key={row.label} className="flex justify-between gap-6 px-4 py-2.5 text-sm">
                   <dt className="text-zinc-500">{row.label}</dt>
                   <dd className="text-right text-zinc-900">{row.value || "—"}</dd>

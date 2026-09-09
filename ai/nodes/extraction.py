@@ -71,16 +71,18 @@ def _fallback(text: str) -> CandidateProfile:
 def run(state: ScreeningState) -> dict:
     errors = list(state.errors)
     prompt_versions = dict(state.prompt_versions)
-    model = state.model
+    brain_model = state.model
+    llm_model = state.profile_model or state.model
 
     try:
-        raw, prompt_versions, model = llm_json(
+        raw, prompt_versions, _ = llm_json(
             cv_extraction.SYSTEM,
             cv_extraction.user(state.cv_text),
             prompt_version=cv_extraction.PROMPT_VERSION,
-            model=model,
+            model=llm_model,
             prompt_versions=prompt_versions,
             enabled=state.ai_mode,
+            max_tokens=3000,
         )
         profile = CandidateProfile.model_validate(raw)
     except (NodeError, ValueError):
@@ -91,5 +93,5 @@ def run(state: ScreeningState) -> dict:
         "candidate_profile": profile,
         "errors": errors,
         "prompt_versions": prompt_versions,
-        "model": model,
+        "model": brain_model,
     }

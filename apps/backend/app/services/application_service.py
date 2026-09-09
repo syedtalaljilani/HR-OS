@@ -39,10 +39,21 @@ def generate_application_id(db: Session) -> str:
 
 
 def _form_profile(data: ApplicationCreate) -> dict:
-    """Build a candidate profile dict from the user-reviewed form fields."""
+    """Build a candidate profile dict from the user-confirmed form fields.
+
+    Starts with the full dynamic profile (all CV-driven sections) sent as JSON,
+    then lets the individual form fields override the core sections.
+    """
     import json
 
     profile: dict = {}
+    if data.profile_data:
+        try:
+            parsed = json.loads(data.profile_data)
+        except (ValueError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            profile = parsed
     if data.skills:
         skills = [s.strip() for s in data.skills.split(",") if s.strip()]
         if skills:
@@ -266,6 +277,8 @@ def change_status(
     send_email: bool = False,
     email_reason: str | None = None,
     email_context: dict | None = None,
+    email_subject: str | None = None,
+    email_body: str | None = None,
 ) -> Application:
     from app.db.models.enums import EmailType
     from app.services import audit_service as audit
@@ -313,8 +326,10 @@ def change_status(
                 application_id=application.id,
                 email_type=email_type,
                 recipient=application.candidate.email,
-                subject=application_email_subject(application, email_type),
-                body=application_email_body(
+                subject=email_subject
+                or application_email_subject(application, email_type),
+                body=email_body
+                or application_email_body(
                     application, email_type, **body_kwargs
                 ),
                 send=send_email,

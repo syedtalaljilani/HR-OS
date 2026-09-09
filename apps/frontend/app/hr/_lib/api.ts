@@ -256,3 +256,27 @@ export async function getRankedApplications(
   if (jobId) params.set("job_id", jobId);
   return api<RankedApplication[]>(`/applications/ranked?${params.toString()}`);
 }
+
+export type EmailAssistantDraft = {
+  subject: string;
+  body: string;
+  model: string | null;
+};
+
+export type EmailAssistantRequest = {
+  email_type?: string;
+  reason?: string;
+  context?: Record<string, unknown>;
+  hr_notes?: string;
+  tone?: string;
+};
+
+export async function draftEmailWithAI(
+  applicationId: string,
+  data: EmailAssistantRequest
+): Promise<EmailAssistantDraft> {
+  return api<EmailAssistantDraft>(
+    `/applications/${applicationId}/email/assistant`,
+    { method: "POST", body: data as unknown as Record<string, unknown> }
+  );
+}

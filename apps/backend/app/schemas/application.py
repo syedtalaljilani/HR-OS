@@ -17,6 +17,7 @@ class ApplicationCreate(BaseModel):
     skills: str | None = None
     education: str | None = None
     experience: str | None = None
+    profile_data: str | None = None
 
 
 class ApplicationTrackingResponse(BaseModel):
