@@ -82,3 +82,6 @@ storage/
 docs/
 
 app_notes.md
+
+backend.log
+backend.log.err

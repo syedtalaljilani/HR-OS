@@ -1,5 +1,9 @@
 # HR OS — AI-Native Recruitment Operating System
 
+<p align="center">
+  <img src="docs/img/hero.gif" alt="HR OS — AI-native recruitment workflow" width="100%">
+</p>
+
 > End-to-end hiring platform where a local, private AI stack runs the busywork:
 > it reads every CV, screens candidates against your job requirements, runs the
 > email conversation, sends reminders, and auto-invites your talent pool — while
