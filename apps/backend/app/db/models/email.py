@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
-from app.db.models.enums import EmailStatus, EmailType
+from app.db.models.enums import EmailDirection, EmailStatus, EmailType
 
 
 class Email(Base):
@@ -24,6 +24,14 @@ class Email(Base):
     type: Mapped[EmailType] = mapped_column(
         Enum(EmailType, name="email_type"), nullable=False
     )
+    direction: Mapped[EmailDirection] = mapped_column(
+        Enum(EmailDirection, name="email_direction"),
+        nullable=False,
+        default=EmailDirection.OUTBOUND,
+    )
+    sender_email: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
     recipient: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(
@@ -35,6 +43,9 @@ class Email(Base):
         default=EmailStatus.PENDING,
     )
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

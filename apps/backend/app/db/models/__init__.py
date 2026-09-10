@@ -3,6 +3,7 @@ from app.db.models.application import (
     ApplicationStatusHistory,
     ApplicationTrackingToken,
     CVDocument,
+    ScreeningQueue,
     ScreeningResult,
 )
 from app.db.models.audit_log import AuditLog
@@ -17,6 +18,7 @@ from app.db.models.interview import (
 from app.db.models.job import Job
 from app.db.models.org_settings import OrgSettings
 from app.db.models.talent_pool import TalentPool
+from app.db.models.talent_pool_invite import TalentPoolInvite
 from app.db.models.user import User
 
 __all__ = [
@@ -33,7 +35,9 @@ __all__ = [
     "InterviewScorecard",
     "Job",
     "OrgSettings",
+    "ScreeningQueue",
     "ScreeningResult",
     "TalentPool",
+    "TalentPoolInvite",
     "User",
 ]

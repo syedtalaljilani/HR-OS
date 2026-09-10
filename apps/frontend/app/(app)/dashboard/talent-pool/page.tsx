@@ -153,7 +153,7 @@ export default function TalentPoolPage() {
           Match pool against a job
         </h2>
         <p className="mt-0.5 text-xs text-zinc-400">
-          AI similarity scoring between pool candidates and an open position.
+          Similarity matching between pool candidates and an open position.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <select
@@ -180,16 +180,16 @@ export default function TalentPoolPage() {
           ) : (
             <div className="mt-4 overflow-x-auto border border-zinc-200">
               <table className="min-w-full divide-y divide-zinc-200 text-sm">
-                <thead className="bg-violet-50/60 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+                <thead className="bg-navy-50/60 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-4 py-2.5">Candidate</th>
-                    <th className="px-4 py-2.5">AI similarity</th>
+                    <th className="px-4 py-2.5">Similarity</th>
                     <th className="px-4 py-2.5 text-right">Evidence</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {matches.map((match) => (
-                    <tr key={match.candidate_id} className="hover:bg-violet-50/40">
+                    <tr key={match.candidate_id} className="hover:bg-navy-50/40">
                       <td className="px-4 py-3 font-medium text-zinc-900">
                         {match.candidate_name ?? "Pool candidate"}
                       </td>
@@ -197,7 +197,7 @@ export default function TalentPoolPage() {
                         <span className="inline-flex items-center gap-2">
                           <span className="h-1.5 w-16 bg-zinc-100">
                             <span
-                              className="block h-1.5 bg-violet-600"
+                              className="block h-1.5 bg-navy-600"
                               style={{
                                 width: `${Math.min(100, Math.round(match.similarity * 100))}%`,
                               }}
@@ -231,7 +231,7 @@ export default function TalentPoolPage() {
               }}
               className={`px-3 py-1 text-xs font-medium transition ${
                 filter === ""
-                  ? "bg-violet-600 text-white"
+                  ? "bg-navy-600 text-white"
                   : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
               }`}
             >
@@ -246,7 +246,7 @@ export default function TalentPoolPage() {
                 }}
                 className={`px-3 py-1 text-xs font-medium transition ${
                   filter === status
-                    ? "bg-violet-600 text-white"
+                    ? "bg-navy-600 text-white"
                     : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                 }`}
               >
@@ -264,7 +264,7 @@ export default function TalentPoolPage() {
         ) : (
           <div className="overflow-x-auto border border-zinc-200 bg-white shadow-sm">
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead className="bg-violet-50/60 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <thead className="bg-navy-50/60 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
                 <tr>
                   <th className="px-5 py-3">Candidate</th>
                   <th className="px-5 py-3">Contact</th>
@@ -275,7 +275,7 @@ export default function TalentPoolPage() {
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {entries.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-violet-50/40">
+                  <tr key={entry.id} className="hover:bg-navy-50/40">
                     <td className="px-5 py-3.5">
                       <p className="font-medium text-zinc-900">
                         {entry.candidate_name ?? "Pool candidate"}
@@ -283,7 +283,7 @@ export default function TalentPoolPage() {
                       {entry.source_application_id ? (
                         <Link
                           href={`/dashboard/candidates/${entry.source_application_id}`}
-                          className="text-xs text-violet-600 hover:underline"
+                          className="text-xs text-navy-600 hover:underline"
                         >
                           View application →
                         </Link>

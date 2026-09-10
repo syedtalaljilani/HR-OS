@@ -4,17 +4,20 @@ import { useEffect, useState } from "react";
 
 import Button from "@/app/hr/_components/Button";
 import { Field, inputClass } from "@/app/hr/_components/Field";
+import LocationPicker from "@/app/hr/_components/LocationPicker";
 import { ErrorNote } from "@/app/hr/_components/Modal";
 import { api } from "@/app/hr/_lib/api";
 
 type OrgSettings = {
   company_name: string;
   hr_name: string;
+  company_location: string;
 };
 
 export default function SettingsPage() {
   const [companyName, setCompanyName] = useState("");
   const [hrName, setHrName] = useState("");
+  const [companyLocation, setCompanyLocation] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -27,6 +30,7 @@ export default function SettingsPage() {
         const settings = await api<OrgSettings>("/settings/organization");
         setCompanyName(settings.company_name ?? "");
         setHrName(settings.hr_name ?? "");
+        setCompanyLocation(settings.company_location ?? "");
         setError(null);
       } catch (caught) {
         setError(
@@ -45,11 +49,15 @@ export default function SettingsPage() {
     try {
       await api<OrgSettings>("/settings/organization", {
         method: "PUT",
-        body: { company_name: companyName, hr_name: hrName },
+        body: {
+          company_name: companyName,
+          hr_name: hrName,
+          company_location: companyLocation,
+        },
       });
       setError(null);
       setNotice(
-        "Saved. New AI-drafted emails will use this company and HR identity."
+        "Saved. Email drafts will use this company, HR and location identity."
       );
     } catch (caught) {
       setError(
@@ -84,8 +92,8 @@ export default function SettingsPage() {
           Settings
         </h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Organization identity used by AI-drafted emails (company name and HR
-          sign-off).
+          Organization identity used in email drafts (company name, HR
+          sign-off and office location).
         </p>
       </div>
 
@@ -113,6 +121,19 @@ export default function SettingsPage() {
               className={inputClass()}
             />
           </Field>
+          <Field
+            label="Company location"
+            hint="Office address, included in onsite interview emails together with a map link. Type it below or set it by clicking the map."
+          >
+            <textarea
+              rows={2}
+              value={companyLocation}
+              onChange={(event) => setCompanyLocation(event.target.value)}
+              placeholder="e.g. 3rd Floor, Progressive Plaza, Blue Area, Islamabad"
+              className={inputClass()}
+            />
+          </Field>
+          <LocationPicker value={companyLocation} onChange={setCompanyLocation} />
 
           {error ? <ErrorNote message={error} /> : null}
           {notice ? (
@@ -125,7 +146,9 @@ export default function SettingsPage() {
             <Button
               onClick={save}
               loading={saving}
-              disabled={!companyName.trim() && !hrName.trim()}
+              disabled={
+                !companyName.trim() && !hrName.trim() && !companyLocation.trim()
+              }
             >
               Save settings
             </Button>

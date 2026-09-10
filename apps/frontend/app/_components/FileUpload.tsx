@@ -67,11 +67,11 @@ export default function FileUpload({
           }}
           className={`flex w-full flex-col items-center justify-center gap-2 border border-dashed px-6 py-10 text-center transition ${
             dragOver
-              ? "border-violet-500 bg-violet-50"
-              : "border-zinc-300 bg-white hover:border-violet-400 hover:bg-violet-50/40"
+              ? "border-navy-500 bg-navy-50"
+              : "border-zinc-300 bg-white hover:border-navy-400 hover:bg-navy-50/40"
           }`}
         >
-          <span className="flex h-10 w-10 items-center justify-center bg-violet-50 text-violet-600">
+          <span className="flex h-10 w-10 items-center justify-center bg-navy-50 text-navy-600">
             <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path
                 strokeLinecap="round"
@@ -84,15 +84,15 @@ export default function FileUpload({
             Drag & drop your CV here
           </span>
           <span className="text-sm text-zinc-500">
-            or <span className="font-medium text-violet-600">browse</span> from
+            or <span className="font-medium text-navy-600">browse</span> from
             your computer
           </span>
           <span className="text-xs text-zinc-400">PDF / DOCX / TXT</span>
         </button>
       ) : (
-        <div className="flex items-center justify-between gap-3 border border-zinc-200 bg-violet-50/50 px-4 py-3">
+        <div className="flex items-center justify-between gap-3 border border-zinc-200 bg-navy-50/50 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-violet-600 text-white">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-navy-600 text-white">
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path
                   strokeLinecap="round"
@@ -118,7 +118,7 @@ export default function FileUpload({
               if (inputRef.current) inputRef.current.value = "";
               onFileChange?.(null);
             }}
-            className="shrink-0 text-sm font-medium text-violet-600 hover:text-violet-800"
+            className="shrink-0 text-sm font-medium text-navy-600 hover:text-navy-800"
           >
             Replace
           </button>

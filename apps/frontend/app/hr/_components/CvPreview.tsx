@@ -93,7 +93,7 @@ function CvViewer({
 
       {loading ? (
         <div className="flex flex-col items-center gap-2 border border-zinc-200 bg-white py-16 text-sm text-zinc-500">
-          <span className="h-6 w-6 animate-spin rounded-full border-2 border-violet-600 border-t-transparent" />
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-navy-600 border-t-transparent" />
           Loading CV…
         </div>
       ) : null}
@@ -112,7 +112,7 @@ function CvViewer({
             className="h-[60vh] w-full border border-zinc-200 bg-white"
           />
         ) : (
-          <div className="flex flex-col items-center gap-3 border border-dashed border-zinc-300 bg-violet-50/50 px-6 py-14 text-center">
+          <div className="flex flex-col items-center gap-3 border border-dashed border-zinc-300 bg-navy-50/50 px-6 py-14 text-center">
             <p className="text-sm text-zinc-500">
               This file type cannot be previewed inline.
             </p>

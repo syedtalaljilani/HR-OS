@@ -14,9 +14,11 @@ def get_organization(
     db: Session = Depends(get_db),
     _: User = Depends(require_hr_or_admin),
 ):
-    """Company / HR identity used in AI-drafted emails."""
-    company, hr = settings_service.org_identity(db)
-    return OrgSettingsOut(company_name=company, hr_name=hr)
+    """Company / HR identity and location used in AI-drafted emails."""
+    company, hr, location = settings_service.org_identity(db)
+    return OrgSettingsOut(
+        company_name=company, hr_name=hr, company_location=location
+    )
 
 
 @router.put("/organization", response_model=OrgSettingsOut)
@@ -25,8 +27,15 @@ def update_organization(
     db: Session = Depends(get_db),
     _: User = Depends(require_hr_or_admin),
 ):
-    """Save company / HR identity. Takes effect immediately for new drafts."""
+    """Save company / HR identity and location. Takes effect immediately."""
     row = settings_service.save_org_settings(
-        db, company_name=data.company_name, hr_name=data.hr_name
+        db,
+        company_name=data.company_name,
+        hr_name=data.hr_name,
+        company_location=data.company_location,
     )
-    return OrgSettingsOut(company_name=row.company_name, hr_name=row.hr_name)
+    return OrgSettingsOut(
+        company_name=row.company_name,
+        hr_name=row.hr_name,
+        company_location=row.company_location,
+    )

@@ -13,27 +13,34 @@ def get_org_settings(db: Session) -> OrgSettings:
             id=1,
             company_name=app_settings.COMPANY_NAME,
             hr_name=app_settings.HR_NAME,
+            company_location=app_settings.COMPANY_LOCATION,
         )
         db.add(row)
         db.flush()
     return row
 
 
-def org_identity(db: Session) -> tuple[str, str]:
-    """Effective company/HR identity: DB value wins, env is the fallback."""
+def org_identity(db: Session) -> tuple[str, str, str]:
+    """Effective company/HR/location identity: DB value wins, env is the fallback."""
     row = get_org_settings(db)
     company = row.company_name or app_settings.COMPANY_NAME
     hr = row.hr_name or app_settings.HR_NAME
-    return company, hr
+    location = row.company_location or app_settings.COMPANY_LOCATION
+    return company, hr, location
 
 
 def save_org_settings(
-    db: Session, *, company_name: str = "", hr_name: str = ""
+    db: Session,
+    *,
+    company_name: str = "",
+    hr_name: str = "",
+    company_location: str = "",
 ) -> OrgSettings:
     """Persist company identity. Called from the dashboard Settings page."""
     row = get_org_settings(db)
     row.company_name = (company_name or "").strip()
     row.hr_name = (hr_name or "").strip()
+    row.company_location = (company_location or "").strip()
     db.commit()
     db.refresh(row)
     return row

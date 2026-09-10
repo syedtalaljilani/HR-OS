@@ -36,12 +36,12 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex flex-1 items-center justify-center bg-violet-50 px-6 py-16">
+    <main className="flex flex-1 items-center justify-center bg-navy-50 px-6 py-16">
       <div className="w-full max-w-sm">
-        <div className="relative border border-zinc-200 border-t-4 border-t-violet-600 bg-white p-8 shadow-md">
+        <div className="relative border border-zinc-200 border-t-4 border-t-navy-600 bg-white p-8 shadow-md">
           <div className="mb-6 text-center">
             <Link href="/" className="text-2xl font-bold text-zinc-900">
-              HR <span className="text-violet-600">OS</span>
+              HR <span className="text-navy-600">OS</span>
             </Link>
             <p className="mt-1 text-sm text-zinc-500">
               Sign in to the recruitment console

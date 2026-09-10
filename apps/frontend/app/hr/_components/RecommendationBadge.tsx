@@ -9,13 +9,11 @@ const PALETTE: Record<string, string> = {
 
 export default function RecommendationBadge({
   recommendation,
-  labelled = true,
 }: {
   recommendation: string | null | undefined;
-  labelled?: boolean;
 }) {
   const status = recommendation ?? "UNCLEAR";
-  const text = labelled ? `AI • ${formatStatus(status)}` : formatStatus(status);
+  const text = formatStatus(status);
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${PALETTE[status]}`}

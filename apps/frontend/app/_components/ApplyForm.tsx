@@ -115,7 +115,7 @@ const LIST_SECTIONS: ListSectionDef[] = [
 const STEP_LABELS = ["Upload CV", "Confirm details", "Submit"];
 
 const inputClass =
-  "w-full border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500";
+  "w-full border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-navy-500 focus:outline-none focus:ring-1 focus:ring-navy-500";
 
 function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
   return (
@@ -135,7 +135,7 @@ function StepIndicator({ current }: { current: number }) {
               index < current
                 ? "bg-emerald-500 text-white"
                 : index === current
-                  ? "bg-violet-600 text-white"
+                  ? "bg-navy-600 text-white"
                   : "border border-zinc-300 bg-white text-zinc-400"
             }`}
           >
@@ -187,7 +187,7 @@ function ProcessingPanel({ status }: { status: "extracting" | "processing" }) {
         {[0, 150, 300].map((delay) => (
           <span
             key={delay}
-            className="step-pulse h-2.5 w-2.5 rounded-full bg-violet-600"
+            className="step-pulse h-2.5 w-2.5 rounded-full bg-navy-600"
             style={delay ? { animationDelay: `${delay}ms` } : undefined}
           />
         ))}
@@ -197,7 +197,7 @@ function ProcessingPanel({ status }: { status: "extracting" | "processing" }) {
       </h3>
       <p className="mt-1 text-sm text-zinc-500">
         {isExtracting
-          ? "AI is extracting your full CV (contact, skills, education, experience, projects, certifications). It usually takes a few seconds."
+          ? "Extracting your CV — contact, skills, education, experience, projects and certifications. Usually takes a few seconds."
           : "This usually takes a few seconds."}
       </p>
     </div>
@@ -244,16 +244,20 @@ const INITIAL_LIST_SECTIONS = LIST_SECTIONS.reduce<Record<string, string[]>>((ac
 export default function ApplyForm({
   jobId,
   jobTitle,
+  inviteToken,
+  prefill,
 }: {
   jobId: string;
   jobTitle: string;
+  inviteToken?: string;
+  prefill?: { fullName?: string; email?: string };
 }) {
   const [step, setStep] = useState(0);
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [state, setState] = useState<ApplyState>({ status: "idle" });
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState(prefill?.fullName ?? "");
+  const [email, setEmail] = useState(prefill?.email ?? "");
   const [phone, setPhone] = useState("");
   const [expectedSalary, setExpectedSalary] = useState("");
   const [address, setAddress] = useState("");
@@ -400,7 +404,10 @@ export default function ApplyForm({
     );
 
     try {
-      const res = await fetch(`${API_BASE}/public/jobs/${jobId}/apply`, {
+      const endpoint = inviteToken
+        ? `${API_BASE}/public/invitations/${inviteToken}/apply`
+        : `${API_BASE}/public/jobs/${jobId}/apply`;
+      const res = await fetch(endpoint, {
         method: "POST",
         body,
       });
@@ -458,7 +465,7 @@ export default function ApplyForm({
         </p>
         <Link
           href={`/track/${state.success.trackingToken}`}
-          className="mt-5 inline-flex items-center bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+          className="mt-5 inline-flex items-center bg-navy-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700"
         >
           Track my application
         </Link>
@@ -498,7 +505,7 @@ export default function ApplyForm({
                   setState({ status: "idle", error: undefined });
                   setStep(1);
                 }}
-                className="inline-flex w-fit items-center text-sm font-medium text-violet-600 hover:text-violet-800"
+                className="inline-flex w-fit items-center text-sm font-medium text-navy-600 hover:text-navy-800"
               >
                 Or enter your details manually
               </button>
@@ -647,7 +654,7 @@ export default function ApplyForm({
                   <button
                     type="button"
                     onClick={() => addObjectSection(def.key)}
-                    className="inline-flex w-fit items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-800"
+                    className="inline-flex w-fit items-center gap-1 text-sm font-medium text-navy-600 hover:text-navy-800"
                   >
                     <PlusIcon />
                     Add {def.label.toLowerCase()}
@@ -690,7 +697,7 @@ export default function ApplyForm({
                       key={def.key}
                       type="button"
                       onClick={() => addObjectSection(def.key)}
-                      className="inline-flex items-center gap-1 text-sm font-medium text-violet-600 hover:text-violet-800"
+                      className="inline-flex items-center gap-1 text-sm font-medium text-navy-600 hover:text-navy-800"
                     >
                       <PlusIcon />
                       Add {def.label.toLowerCase()}
@@ -710,7 +717,7 @@ export default function ApplyForm({
                     setCvFile(null);
                     setProfileReset();
                   }}
-                  className="font-medium text-violet-600 hover:text-violet-800"
+                  className="font-medium text-navy-600 hover:text-navy-800"
                 >
                   Change
                 </button>
@@ -719,7 +726,7 @@ export default function ApplyForm({
                 type="button"
                 onClick={() => setStep(2)}
                 disabled={!fullName.trim() || !email.trim()}
-                className="inline-flex items-center bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
+                className="inline-flex items-center bg-navy-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700 disabled:opacity-60"
               >
                 Continue
               </button>
@@ -780,7 +787,7 @@ export default function ApplyForm({
                 required
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
-                className="mt-0.5 h-4 w-4 border-zinc-300 text-violet-600 focus:ring-violet-500"
+                className="mt-0.5 h-4 w-4 border-zinc-300 text-navy-600 focus:ring-navy-500"
               />
               <span>
                 I consent to my application for {jobTitle} and my personal data
@@ -805,7 +812,7 @@ export default function ApplyForm({
               <button
                 type="submit"
                 disabled={state.status === "submitting" || !consent}
-                className="inline-flex w-auto items-center justify-center bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60"
+                className="inline-flex w-auto items-center justify-center bg-navy-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700 disabled:opacity-60"
               >
                 {state.status === "submitting" ? "Submitting…" : "Submit application"}
               </button>

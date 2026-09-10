@@ -78,10 +78,23 @@ class EmailType(str, Enum):
     INTERVIEW = "INTERVIEW"
     SELECTED = "SELECTED"
     REJECTED = "REJECTED"
+    REPLY = "REPLY"
+
+
+class EmailDirection(str, Enum):
+    INBOUND = "INBOUND"
+    OUTBOUND = "OUTBOUND"
     TALENT_POOL = "TALENT_POOL"
 
 
 class EmailStatus(str, Enum):
     PENDING = "PENDING"
     SENT = "SENT"
+    FAILED = "FAILED"
+
+
+class ScreeningQueueStatus(str, Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"

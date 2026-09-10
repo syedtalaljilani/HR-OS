@@ -52,6 +52,10 @@ def chat_json(
         "format": "json",
         "stream": False,
         "keep_alive": keep_alive or OLLAMA_KEEP_ALIVE,
+        # Qwen3 emits long reasoning traces by default. For structured, time-boxed
+        # HR work (CV parsing, screening, emails) the chain-of-thought is not
+        # needed — disabling it cuts latency and token usage dramatically.
+        "think": False,
         "options": options,
     }
     body = _request(f"{OLLAMA_URL}/api/chat", payload, CHAT_TIMEOUT)

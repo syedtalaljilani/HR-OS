@@ -15,6 +15,7 @@ class CandidateOut(BaseModel):
     profile_data: dict | None
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class CandidateUpdate(BaseModel):

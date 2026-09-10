@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.dependencies import get_db, require_hr_or_admin
 from app.db.models.user import User
 from app.schemas.job import (
@@ -12,7 +13,7 @@ from app.schemas.job import (
     JobOut,
     JobUpdate,
 )
-from app.services import job_assistant_service, job_service
+from app.services import invite_service, job_assistant_service, job_service
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -75,10 +76,16 @@ def update_job(
 @router.post("/{job_id}/publish", response_model=JobOut)
 def publish_job(
     job_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_hr_or_admin),
 ):
-    return JobOut.model_validate(job_service.publish_job(db, job_id, current_user.id))
+    job = job_service.publish_job(db, job_id, current_user.id)
+    if settings.TALENT_POOL_INVITES_ON_PUBLISH:
+        # In the background, invite matching talent-pool candidates (matched by
+        # job title) with a one-time apply link in the email.
+        background_tasks.add_task(invite_service.send_job_invites, job.id)
+    return JobOut.model_validate(job)
 
 
 @router.post("/{job_id}/close", response_model=JobOut)

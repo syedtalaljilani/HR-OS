@@ -43,6 +43,14 @@ def _fallback(state: EmailAgentState) -> dict:
             + _signoff(state)
         )
         subject = f"Application Update: You have been selected for {title}"
+    elif state.email_type == "REPLY":
+        body = (
+            f"Dear {name},\n\n"
+            f"Thank you for your email regarding {title}. We have received your "
+            "query and will get back to you shortly with an answer.\n\n"
+            + _signoff(state)
+        )
+        subject = "Re: your query"
     else:
         body = (
             f"Dear {name},\n\n"

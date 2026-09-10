@@ -27,7 +27,7 @@ export function TableSkeleton({
 }) {
   return (
     <div className="border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-200 bg-violet-50/60 px-5 py-3">
+      <div className="border-b border-zinc-200 bg-navy-50/60 px-5 py-3">
         <Skeleton className="h-3 w-32" />
       </div>
       {Array.from({ length: rows }).map((_, rowIndex) => (

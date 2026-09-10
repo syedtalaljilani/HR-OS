@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -9,17 +11,31 @@ from app.api.routes import audit as audit_routes
 from app.api.routes import auth as auth_routes
 from app.api.routes import candidates as candidates_routes
 from app.api.routes import emails as emails_routes
+from app.api.routes import inbox as inbox_routes
 from app.api.routes import jobs as jobs_routes
 from app.api.routes import public as public_routes
+from app.api.routes import screening_queue as screening_queue_routes
 from app.api.routes import settings as settings_routes
 from app.api.routes import talent_pool as talent_pool_routes
 from app.api.routes import users as users_routes
 from app.db.session import get_db
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    from app.services import reply_agent_service
+    from app.services import screening_queue_service
+
+    reply_agent_service.start_scheduler()
+    screening_queue_service.start_worker()
+    yield
+
+
 app = FastAPI(
     title="HR Recruitment OS API",
     description="AI-assisted HR Recruitment System",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS
@@ -40,9 +56,11 @@ app.include_router(public_routes.router)
 app.include_router(applications_routes.router)
 app.include_router(candidates_routes.router)
 app.include_router(talent_pool_routes.router)
+app.include_router(screening_queue_routes.router)
 app.include_router(emails_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(audit_routes.router)
+app.include_router(inbox_routes.router)
 
 
 @app.get("/")

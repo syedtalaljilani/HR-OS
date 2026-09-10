@@ -76,6 +76,8 @@ def get_or_create_candidate(
 ) -> Candidate:
     email = data.email.lower()
     candidate = db.query(Candidate).filter(Candidate.email == email).first()
+    if candidate is not None and candidate.deleted_at is not None:
+        candidate = None
     form_profile = _form_profile(data)
     if candidate:
         if form_profile:
@@ -109,6 +111,7 @@ def check_duplicate_application(
         .filter(
             Application.candidate_id == candidate_id,
             Application.job_id == job_id,
+            Application.deleted_at.is_(None),
         )
         .first()
         is not None
@@ -132,6 +135,7 @@ def check_duplicate_by_identity(
         .filter(
             Candidate.email == email,
             Candidate.id != current_candidate_id,
+            Candidate.deleted_at.is_(None),
         )
         .first()
     )
@@ -141,6 +145,7 @@ def check_duplicate_by_identity(
             .filter(
                 Application.candidate_id == existing.id,
                 Application.job_id == job_id,
+                Application.deleted_at.is_(None),
             )
             .first()
         )
@@ -154,6 +159,7 @@ def check_duplicate_by_identity(
             .filter(
                 Candidate.phone.is_not(None),
                 Candidate.id != current_candidate_id,
+                Candidate.deleted_at.is_(None),
             )
             .all()
         )
@@ -164,6 +170,7 @@ def check_duplicate_by_identity(
                     .filter(
                         Application.candidate_id == cand.id,
                         Application.job_id == job_id,
+                        Application.deleted_at.is_(None),
                     )
                     .first()
                 )
@@ -174,14 +181,39 @@ def check_duplicate_by_identity(
     return None
 
 
+def _previous_rejected_for_job(
+    db: Session, candidate_id: uuid.UUID, job_id: uuid.UUID
+) -> bool:
+    """True when this candidate already applied for the job and was rejected.
+
+    Talent-pool invite re-applications (updated CV) are permitted only in this
+    case — the rejected application stays on record and a fresh one is created.
+    """
+    existing = (
+        db.query(Application)
+        .filter(
+            Application.candidate_id == candidate_id,
+            Application.job_id == job_id,
+            Application.deleted_at.is_(None),
+        )
+        .first()
+    )
+    return existing is not None and existing.status == ApplicationStatus.REJECTED
+
+
 def create_application(
     db: Session,
     job: Job,
     data: ApplicationCreate,
     file: UploadFile,
     file_contents: bytes,
+    *,
+    allow_reapply: bool = False,
 ) -> tuple[Application, str]:
     """Creates candidate + application + CV record + tracking token.
+
+    ``allow_reapply`` (used by the talent-pool invite flow) lets a candidate who
+    was previously rejected re-apply to the same job with an updated CV.
 
     Returns the application and the raw (un-hashed) tracking token.
     """
@@ -197,7 +229,9 @@ def create_application(
     candidate = get_or_create_candidate(db, data)
 
     duplicate = check_duplicate_by_identity(db, data, job.id, candidate.id)
-    if duplicate:
+    if duplicate and not (
+        allow_reapply and _previous_rejected_for_job(db, candidate.id, job.id)
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=duplicate["reason"],
@@ -268,6 +302,94 @@ def create_application(
     return application, raw_token
 
 
+def delete_application(
+    db: Session, application: Application, changed_by: uuid.UUID | None
+) -> Application:
+    """Soft-delete an application (moves it to trash, keeps every record).
+
+    Recovery is possible via :func:`recover_application`; the deletion is
+    written to the audit log and to the application status history.
+    """
+    from app.services import audit_service as audit
+
+    if application.deleted_at is not None:
+        return application
+    old = application.status
+    application.deleted_at = datetime.now(timezone.utc)
+    db.add(
+        ApplicationStatusHistory(
+            application_id=application.id,
+            from_status=old.value if old else None,
+            to_status="DELETED",
+            changed_by=changed_by,
+            reason="Application moved to trash",
+        )
+    )
+    audit.log_action(
+        db,
+        user_id=changed_by,
+        action="application.delete",
+        entity_type="application",
+        entity_id=application.id,
+        old_value={"status": old.value if old else None},
+        new_value={"status": "DELETED"},
+    )
+    db.commit()
+    db.refresh(application)
+
+    # Cascade: deleting an application also removes the candidate from the
+    # talent pool (and with it any other applications the candidate has).
+    candidate = application.candidate
+    if candidate is not None and candidate.deleted_at is None:
+        from app.services.candidate_service import delete_candidate
+
+        delete_candidate(db, candidate, changed_by)
+        db.refresh(application)
+    return application
+
+
+def recover_application(
+    db: Session, application: Application, changed_by: uuid.UUID | None
+) -> Application:
+    """Restore a soft-deleted application back into the active list."""
+    from app.services import audit_service as audit
+
+    if application.deleted_at is None:
+        return application
+    previous = application.status
+    application.deleted_at = None
+    db.add(
+        ApplicationStatusHistory(
+            application_id=application.id,
+            from_status="DELETED",
+            to_status=previous.value,
+            changed_by=changed_by,
+            reason="Application restored from trash",
+        )
+    )
+    audit.log_action(
+        db,
+        user_id=changed_by,
+        action="application.recover",
+        entity_type="application",
+        entity_id=application.id,
+        old_value={"status": "DELETED"},
+        new_value={"status": previous.value},
+    )
+    db.commit()
+    db.refresh(application)
+
+    # Reverse cascade: restoring an application brings its candidate back to
+    # the talent pool too (together with the candidate's other applications).
+    candidate = application.candidate
+    if candidate is not None and candidate.deleted_at is not None:
+        from app.services.candidate_service import recover_candidate
+
+        recover_candidate(db, candidate, changed_by)
+        db.refresh(application)
+    return application
+
+
 def change_status(
     db: Session,
     application: Application,
@@ -279,6 +401,7 @@ def change_status(
     email_context: dict | None = None,
     email_subject: str | None = None,
     email_body: str | None = None,
+    force_email: bool = False,
 ) -> Application:
     from app.db.models.enums import EmailType
     from app.services import audit_service as audit
@@ -287,6 +410,12 @@ def change_status(
         application_email_subject,
         record_email,
     )
+
+    if application.deleted_at is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot change status of a deleted application",
+        )
 
     old = application.status
     if old != new_status:
@@ -311,29 +440,58 @@ def change_status(
             new_value={"status": new_status.value, "reason": reason},
         )
 
-        if new_status in (ApplicationStatus.SELECTED, ApplicationStatus.REJECTED) and application.candidate:
-            email_type = (
-                EmailType.SELECTED
-                if new_status == ApplicationStatus.SELECTED
-                else EmailType.REJECTED
-            )
-            body_kwargs = dict(email_context or {})
-            body_kwargs["reason"] = (
-                email_reason if email_reason is not None else reason
-            )
-            record_email(
-                db,
-                application_id=application.id,
-                email_type=email_type,
-                recipient=application.candidate.email,
-                subject=email_subject
-                or application_email_subject(application, email_type),
-                body=email_body
-                or application_email_body(
-                    application, email_type, **body_kwargs
-                ),
-                send=send_email,
-            )
+    if (
+        new_status
+        in (
+            ApplicationStatus.SELECTED,
+            ApplicationStatus.REJECTED,
+            ApplicationStatus.INTERVIEW_SCHEDULED,
+        )
+        and application.candidate
+        and (old != new_status or force_email)
+    ):
+        email_type = {
+            ApplicationStatus.SELECTED: EmailType.SELECTED,
+            ApplicationStatus.REJECTED: EmailType.REJECTED,
+            ApplicationStatus.INTERVIEW_SCHEDULED: EmailType.INTERVIEW,
+        }[new_status]
+        body_kwargs = dict(email_context or {})
+        body_kwargs["reason"] = (
+            email_reason if email_reason is not None else reason
+        )
+        body_kwargs["interview"] = (email_context or {}).get("interview")
+        record_email(
+            db,
+            application_id=application.id,
+            email_type=email_type,
+            recipient=application.candidate.email,
+            subject=email_subject
+            or application_email_subject(application, email_type),
+            body=email_body
+            or application_email_body(
+                application, email_type, **body_kwargs
+            ),
+            send=send_email,
+        )
+        db.commit()
+
+    if (
+        new_status
+        in (
+            ApplicationStatus.SELECTED,
+            ApplicationStatus.SHORTLISTED,
+        )
+        and application.candidate_id is not None
+    ):
+        from app.services import reply_agent_service
+
+        reply_agent_service.cancel_candidate_pending_interviews(
+            db,
+            application.candidate_id,
+            changed_by=changed_by,
+            reason=reason
+            or f"Candidate {new_status.value.lower()} — remaining interviews cancelled.",
+        )
         db.commit()
     return application
 
@@ -353,6 +511,7 @@ def reject_other_applications_on_selection(
             Application.job_id == selected_application.job_id,
             Application.id != selected_application.id,
             Application.status != ApplicationStatus.REJECTED,
+            Application.deleted_at.is_(None),
         )
         .all()
     )
@@ -381,7 +540,10 @@ def get_application_by_token(db: Session, raw_token: str) -> tuple[Application, 
     if token is None:
         application = (
             db.query(Application)
-            .filter(Application.application_id == raw_token)
+            .filter(
+                Application.application_id == raw_token,
+                Application.deleted_at.is_(None),
+            )
             .first()
         )
         if application is None:
@@ -395,6 +557,6 @@ def get_application_by_token(db: Session, raw_token: str) -> tuple[Application, 
         raise HTTPException(status_code=403, detail="Tracking link has expired")
 
     application = db.get(Application, token.application_id)
-    if application is None:
+    if application is None or application.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Application not found")
     return application, token.application_id.hex

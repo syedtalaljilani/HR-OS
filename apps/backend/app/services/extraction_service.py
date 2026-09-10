@@ -287,7 +287,11 @@ def detect_duplicates(db: Session, candidate: Candidate, cv: CVDocument) -> dict
 
     same_email = (
         db.query(Candidate)
-        .filter(Candidate.email == candidate.email, Candidate.id != candidate.id)
+        .filter(
+            Candidate.email == candidate.email,
+            Candidate.id != candidate.id,
+            Candidate.deleted_at.is_(None),
+        )
         .first()
     )
     if same_email:

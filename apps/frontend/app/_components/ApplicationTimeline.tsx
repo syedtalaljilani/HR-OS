@@ -107,7 +107,7 @@ export default function ApplicationTimeline({
                     state === "done"
                       ? "bg-emerald-500 text-white"
                       : state === "current"
-                        ? "bg-violet-600 text-white"
+                        ? "bg-navy-600 text-white"
                         : "border border-zinc-300 bg-white text-zinc-400"
                   }`}
                 >

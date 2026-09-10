@@ -1,21 +1,67 @@
 import logging
+import re
 import smtplib
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.utils import formataddr
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models.email import Email
-from app.db.models.enums import EmailStatus, EmailType
+from app.db.models.enums import EmailDirection, EmailStatus, EmailType
 
 logger = logging.getLogger("hros.email")
+
+# Interview times are stored in UTC (the web form converts local wall time to
+# UTC before saving), so the candidate-facing email must render them back in
+# local time — otherwise a 08:00 PKT interview is announced as 03:00 AM.
+HR_TZ = ZoneInfo("Asia/Karachi")
 
 
 def _friendly_email_type(email_type: EmailType) -> str:
     return email_type.value.replace("_", " ").title()
+
+
+def _clean_map_query(address: str) -> str:
+    """Strip address labels and stray fragments so Google Maps can geocode it.
+
+    Settings values often carry "Head Office:" prefixes or dangling "Plot No,"
+    tokens; a raw URL-encoded copy of those makes the map link and embed fail
+    to find the place.
+    """
+    lines = []
+    for raw_line in address.splitlines():
+        line = raw_line.strip()
+        line = re.sub(r"^map\s*:\s*\S+.*$", "", line, flags=re.IGNORECASE).strip()
+        line = re.sub(
+            r"^(head\s*office|registered\s*office|office|plant|factory|shop|plot|address)\s*[:.\-]+\s*",
+            "",
+            line,
+            flags=re.IGNORECASE,
+        ).strip()
+        if line:
+            lines.append(line)
+    cleaned = ", ".join(lines)
+    cleaned = re.sub(
+        r"(?i)\b(?:head\s*office|registered\s*office|office|plant|factory|shop|plot|address)\s*[:.\-]+\s*",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?i)\b(?:plot|shop)\s*(?:no\.?)?\s*(?=,|$)", "", cleaned)
+    cleaned = re.sub(r"(,\s*)+", ", ", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,")
+    # Collapse repeated identical segments ("Kanzo Ag, Kanzo Ag, …") left over
+    # from a duplicated company/office name in the stored address.
+    segments = [seg.strip() for seg in cleaned.split(", ") if seg.strip()]
+    unique: list[str] = []
+    for seg in segments:
+        if not unique or seg.lower() != unique[-1].lower():
+            unique.append(seg)
+    return ", ".join(unique)
 
 
 def record_email(
@@ -26,10 +72,14 @@ def record_email(
     subject: str,
     body: str,
     send: bool = True,
+    direction: EmailDirection = EmailDirection.OUTBOUND,
+    sender_email: str | None = None,
 ) -> Email:
     email = Email(
         application_id=application_id,
         type=email_type,
+        direction=direction,
+        sender_email=sender_email,
         recipient=recipient,
         subject=subject,
         body=body,
@@ -106,6 +156,8 @@ def application_email_subject(application, email_type: EmailType) -> str:
         return f"Application Update on {title}"
     if email_type == EmailType.INTERVIEW:
         return f"Interview Invitation for {title}"
+    if email_type == EmailType.REPLY:
+        return f"Re: Application Update for {title}"
     if email_type == EmailType.TALENT_POOL:
         return f"Exciting opportunity matching your profile: {title}"
     return f"Application received for {title}"
@@ -118,37 +170,79 @@ def application_email_body(
     score: int | float | None = None,
     rank: int | None = None,
     total_candidates: int | None = None,
+    interview=None,
+    company_location: str | None = None,
+    company_name: str | None = None,
+    hr_contact: str | None = None,
 ) -> str:
     candidate_name = application.candidate.full_name if application.candidate else "there"
     title = application.job.title if application.job else "the position"
+    signer = hr_contact or settings.HR_NAME or "HR Team"
+    company = company_name or settings.COMPANY_NAME
+    signoff = f"Best regards,\n{signer}"
+    if company:
+        signoff += f"\n{company}"
     if email_type == EmailType.SELECTED:
         return (
             f"Dear {candidate_name},\n\n"
             f"Congratulations! We are pleased to inform you that your application "
             f"for {title} is being moved forward in the recruitment process.\n\n"
             "Our HR team will contact you with the next steps.\n\n"
-            "Best regards,\nHR OS"
+            f"{signoff}"
         )
+    if email_type == EmailType.INTERVIEW:
+        when = getattr(interview, "scheduled_at", None)
+        if isinstance(when, datetime):
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            when_text = when.astimezone(HR_TZ).strftime(
+                "%A, %d %B %Y at %I:%M %p"
+            )
+        else:
+            when_text = "to be confirmed"
+        location = getattr(interview, "location", None) or None
+        if not location and company_location:
+            location = company_location
+        notes = getattr(interview, "notes", None)
+        body = (
+            f"Dear {candidate_name},\n\n"
+            f"Thank you for your interest in {title}. Following a careful review "
+            "of your application, we would like to invite you to an interview "
+            "call with our team.\n\n"
+            f"Scheduled for: {when_text}\n"
+        )
+        if location:
+            custom_map_links = re.findall(r"(?im)^map\s*:\s*(\S+)\s*$", location)
+            shown_location = _clean_map_query(location)
+            if shown_location:
+                body += f"Where / how: {shown_location}\n"
+            if custom_map_links:
+                body += f"Map: {custom_map_links[0]}\n"
+            elif shown_location:
+                map_url = (
+                    "https://www.google.com/maps/search/?api=1&query="
+                    + urllib.parse.quote(shown_location)
+                )
+                body += f"Map (open with pin): {map_url}\n"
+        if notes:
+            body += f"\nDetails: {notes}\n"
+        body += (
+            "\nPlease confirm your availability — reply to this email if the "
+            "time isn't convenient and we will reschedule.\n\n"
+            f"{signoff}"
+        )
+        return body
     if email_type == EmailType.REJECTED:
         body = (
             f"Dear {candidate_name},\n\n"
             f"Thank you for applying for {title}. After careful review we regret "
             "to inform you that we will not be moving forward with your application.\n\n"
         )
-        if score is not None:
-            body += (
-                f"Your AI-evaluated profile score: {round(float(score))}/100.\n"
-            )
-        if rank is not None and total_candidates:
-            body += (
-                f"You were ranked #{rank} of {total_candidates} candidates who "
-                "applied for this position.\n"
-            )
         if reason:
-            body += f"\nReason: {reason}\n"
+            body += f"Reason: {reason}\n"
         body += (
             "\nWe appreciate the time and effort you invested.\n\n"
-            "Best regards,\nHR OS"
+            f"{signoff}"
         )
         return body
     return (
@@ -157,7 +251,7 @@ def application_email_body(
         f"Application ID: {application.application_id}\n"
         "Your application is now in review. You will receive an update on your "
         "application status, including the evaluation result, by email.\n\n"
-        "Best regards,\nHR OS"
+        f"{signoff}"
     )
 
 

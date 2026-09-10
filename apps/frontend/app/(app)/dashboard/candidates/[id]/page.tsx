@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import Badge from "@/app/hr/_components/Badge";
 import Button from "@/app/hr/_components/Button";
@@ -12,16 +12,22 @@ import RequirementItem from "@/app/hr/_components/RequirementItem";
 import { Field, inputClass } from "@/app/hr/_components/Field";
 import Modal, { EmptyState, ErrorNote } from "@/app/hr/_components/Modal";
 import { DetailSkeleton } from "@/app/hr/_components/Skeleton";
+import { cleanAddressQuery } from "@/app/hr/_lib/address";
 import {
   api,
+  deleteApplication,
+  deleteCandidate,
   draftEmailWithAI,
   formatDate,
   formatMoney,
   formatStatus,
+  recoverApplication,
+  scheduleInterview,
   type ApplicationDetail,
   type Candidate,
   type CVDocument,
   type EvidenceItem,
+  type Interview,
 } from "@/app/hr/_lib/api";
 
 const STATUSES = [
@@ -54,6 +60,7 @@ type ModalAction =
   | "override"
   | "talent"
   | "email"
+  | "interview"
   | null;
 
 type Tab = "overview" | "cv" | "screening" | "activity";
@@ -61,7 +68,7 @@ type Tab = "overview" | "cv" | "screening" | "activity";
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "cv", label: "CV" },
-  { key: "screening", label: "AI screening" },
+  { key: "screening", label: "Screening" },
   { key: "activity", label: "Activity" },
 ];
 
@@ -100,6 +107,7 @@ function ExperienceEntry({ entry }: { entry: unknown }) {
 export default function CandidateDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const router = useRouter();
 
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
@@ -112,6 +120,13 @@ export default function CandidateDetailPage() {
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [previewCv, setPreviewCv] = useState<CVDocument | null>(null);
   const [aiDrafting, setAiDrafting] = useState(false);
+  const [companyLocation, setCompanyLocation] = useState("");
+
+  const mapSearchUrl = (address: string) =>
+    `https://www.google.com/maps/search/?api=1&q=${encodeURIComponent(cleanAddressQuery(address))}`;
+
+  const mapEmbedUrl = (address: string) =>
+    `https://maps.google.com/maps?q=${encodeURIComponent(cleanAddressQuery(address))}&z=15&output=embed`;
 
   const load = useCallback(async () => {
     try {
@@ -123,6 +138,9 @@ export default function CandidateDetailPage() {
           .then(setCandidate)
           .catch(() => setCandidate(null));
       }
+      api<{ company_location: string }>("/settings/organization")
+        .then((settings) => setCompanyLocation(settings.company_location ?? ""))
+        .catch(() => setCompanyLocation(""));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to load application");
     }
@@ -140,8 +158,87 @@ export default function CandidateDetailPage() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    if (!detail?.id) return;
+    let cancelled = false;
+    let seenBusy = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    async function tick() {
+      try {
+        const queue = await api<{ id: string; application_id: string; status: string }[]>(
+          "/screening-queue?limit=50"
+        );
+        const busyEntry = queue.find(
+          (item) =>
+            item.application_id === detail!.id &&
+            (item.status === "QUEUED" || item.status === "PROCESSING")
+        );
+        if (busyEntry && !cancelled) {
+          seenBusy = true;
+          await load(); // refresh candidate + screening as the worker progresses
+          return;
+        }
+        if (seenBusy && !busyEntry && !cancelled) {
+          await load(); // final refresh once the worker has finished
+        }
+        if (timer) clearInterval(timer);
+      } catch {
+        // transient hiccup — keep polling; stops once the queue is quiet
+      }
+    }
+
+    timer = setInterval(tick, 8000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [detail, load]);
+
   function openAction(next: ModalAction) {
-    setFormData({});
+    const prefill: Record<string, string> = {};
+    if (next === "interview" && detail && detail.interviews.length > 0) {
+      const latest = detail.interviews[detail.interviews.length - 1];
+      const saved = new Date(latest.scheduled_at);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      prefill.type = latest.type;
+      prefill.scheduledAt = [
+        saved.getFullYear(),
+        pad(saved.getMonth() + 1),
+        pad(saved.getDate()),
+      ].join("-") + `T${pad(saved.getHours())}:${pad(saved.getMinutes())}`;
+      prefill.notes = latest.notes ?? "";
+      const stored = latest.location;
+      if (stored) {
+        const lines = stored
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const mapLine = lines.find((line) => /^map\s*:\s*\S+/i.test(line));
+        const mapLink =
+          mapLine?.match(/^map\s*:\s*(\S+)\s*$/i)?.[1] ?? "";
+        const addressText = lines
+          .filter((line) => !/^map\s*:\s*/i.test(line))
+          .join(", ");
+        if (mapLink) {
+          prefill.locationMode = "custom";
+          if (addressText) prefill.location = addressText;
+          prefill.mapLink = mapLink;
+        } else if (
+          /^https?:\/\/\S+$/i.test(stored.trim()) &&
+          !addressText
+        ) {
+          prefill.locationMode = "remote";
+          prefill.location = stored.trim();
+        } else {
+          prefill.locationMode = "custom";
+          prefill.location = addressText || stored.trim();
+        }
+      } else {
+        prefill.locationMode = "onsite";
+      }
+    }
+    setFormData(prefill);
     setAction(next);
   }
 
@@ -150,22 +247,119 @@ export default function CandidateDetailPage() {
     setRunning(kind);
     setError(null);
     try {
+      let entryId: string | null = null;
       if (kind === "process") {
-        await api(`/applications/${detail.id}/process`, { method: "POST" });
+        const res = await api<{ entry_id: string }>(
+          `/applications/${detail.id}/process`,
+          { method: "POST" }
+        );
+        entryId = res.entry_id;
       } else {
-        await api(`/applications/${detail.id}/screen`, { method: "POST" });
+        const res = await api<{ entry_id: string }>(
+          `/applications/${detail.id}/screen`,
+          { method: "POST" }
+        );
+        entryId = res.entry_id;
       }
-      await load();
+      setNotice(
+        kind === "process"
+          ? "CV processing started in the background. It keeps running even if you leave this page."
+          : "Screening started in the background. It keeps running even if you leave this page."
+      );
+      void pollUntilDone(kind, entryId);
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
           : kind === "process"
-            ? "CV processing could not be completed."
-            : "AI screening could not be completed."
+            ? "CV processing could not be queued."
+            : "Screening could not be queued."
       );
-    } finally {
       setRunning(null);
+    }
+  }
+
+  async function pollUntilDone(kind: "process" | "screen", entryId: string) {
+    let attempts = 0;
+    while (attempts < 90) {
+      attempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 8000));
+      try {
+        const queue = await api<{ id: string; status: string }[]>(
+          "/screening-queue?limit=50"
+        );
+        const entry = queue.find((item) => item.id === entryId);
+        if (entry && (entry.status === "COMPLETED" || entry.status === "FAILED")) {
+          setRunning(null);
+          setNotice(
+            kind === "screen"
+              ? "Screening finished — see the results below."
+              : "CV processing finished."
+          );
+          await load();
+          return;
+        }
+      } catch {
+        // transient network/refresh hiccup — keep polling
+      }
+    }
+    setRunning(null);
+    setNotice(
+      "Still running in the background — live progress is on the dashboard screening queue."
+    );
+  }
+
+  async function handleDeleteApplication() {
+    if (!detail) return;
+    if (
+      !window.confirm(
+        `Move ${detail.application_id} (${detail.candidate_name ?? "candidate"}) to trash? The candidate will also be removed from the talent pool. Everything stays in the trash and can be recovered.`
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await deleteApplication(detail.id);
+      setNotice("Application and candidate moved to trash.");
+      router.replace("/dashboard/candidates");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRecoverApplication() {
+    if (!detail) return;
+    setBusy(true);
+    try {
+      await recoverApplication(detail.id);
+      setNotice("Application and candidate restored from trash.");
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Recovery failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteCandidate() {
+    if (!detail) return;
+    if (
+      !window.confirm(
+        `Delete candidate ${detail.candidate_name} and ALL their applications? Everything is moved to trash and can be recovered later.`
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await deleteCandidate(detail.candidate_id);
+      setNotice("Candidate and all their applications moved to trash.");
+      router.replace("/dashboard/candidates");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Delete failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -214,6 +408,36 @@ export default function CandidateDetailPage() {
           },
         });
         setNotice("Email logged successfully.");
+      } else if (action === "interview") {
+        const when = formData.scheduledAt;
+        if (!when) {
+          setError("Pick a date and time for the interview call.");
+          setBusy(false);
+          return;
+        }
+        const mode = formData.locationMode ?? "onsite";
+        let location: string | undefined;
+        if (mode === "remote") {
+          if (!formData.location?.trim()) {
+            setError("Enter the meeting link for the remote interview.");
+            setBusy(false);
+            return;
+          }
+          location = formData.location || undefined;
+        } else if (mode === "custom") {
+          const address = formData.location?.trim() ?? "";
+          const mapLink = formData.mapLink?.trim() ?? "";
+          if (address && mapLink) location = `${address}\nMap: ${mapLink}`;
+          else if (mapLink) location = `Map: ${mapLink}`;
+          else location = address || undefined;
+        }
+        await scheduleInterview(detail.id, {
+          type: (formData.type as "HR" | "TECHNICAL") ?? "HR",
+          scheduled_at: new Date(when).toISOString(),
+          location,
+          notes: formData.notes || undefined,
+        });
+        setNotice("Interview call scheduled and the candidate has been emailed.");
       }
       setAction(null);
       await load();
@@ -240,10 +464,10 @@ export default function CandidateDetailPage() {
         subject: draft.subject,
         body: draft.body,
       }));
-      setNotice("AI draft ready — review and edit before sending.");
+      setNotice("Draft ready — review and edit before sending.");
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "AI draft could not be generated"
+        caught instanceof Error ? caught.message : "Draft could not be generated"
       );
     } finally {
       setAiDrafting(false);
@@ -256,7 +480,7 @@ export default function CandidateDetailPage() {
         <ErrorNote message={error} />
         <Link
           href="/dashboard/candidates"
-          className="mt-3 inline-block text-sm text-violet-600 hover:underline"
+          className="mt-3 inline-block text-sm text-navy-600 hover:underline"
         >
           ← Back to candidates
         </Link>
@@ -295,6 +519,12 @@ export default function CandidateDetailPage() {
       ? Math.round(Number(screening.score))
       : null;
 
+  const canInterview =
+    screening !== null &&
+    score !== null &&
+    score >= 40 &&
+    detail.status !== "REJECTED";
+
   return (
     <div className="flex flex-1 flex-col gap-5 p-6 sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -314,24 +544,71 @@ export default function CandidateDetailPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge status={detail.status} />
-          <Button
-            variant="secondary"
-            loading={running === "process"}
-            onClick={() => runDirect("process")}
-            className="text-[13px]"
-          >
-            Process CV
-          </Button>
-          <Button
-            variant="secondary"
-            loading={running === "screen"}
-            onClick={() => runDirect("screen")}
-            className="text-[13px]"
-          >
-            Run AI screening
-          </Button>
+          {detail.deleted_at ? (
+            <Button
+              variant="secondary"
+              loading={busy}
+              onClick={() => void handleRecoverApplication()}
+              className="text-[13px]"
+            >
+              Recover application
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                loading={running === "process"}
+                onClick={() => runDirect("process")}
+                className="text-[13px]"
+              >
+                Process CV
+              </Button>
+              <Button
+                variant="secondary"
+                loading={running === "screen"}
+                onClick={() => runDirect("screen")}
+                className="text-[13px]"
+              >
+                Run screening
+              </Button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleDeleteApplication()}
+                title="Move application to trash (recoverable)"
+                className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[13px] font-medium text-zinc-500 transition hover:border-rose-200 hover:text-rose-600 disabled:opacity-50"
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+                Delete
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleDeleteCandidate()}
+                title="Delete candidate and all their applications (recoverable)"
+                className="text-[12px] font-medium text-zinc-400 transition hover:text-rose-600 disabled:opacity-50"
+              >
+                Delete candidate
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {detail.deleted_at ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          This application was moved to trash on {formatDate(detail.deleted_at)}.
+          It is hidden from all lists and can be restored with Recover application.
+        </div>
+      ) : null}
 
       {notice ? (
         <p className="border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -348,7 +625,7 @@ export default function CandidateDetailPage() {
             onClick={() => setTab(item.key)}
             className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
               tab === item.key
-                ? "border-violet-600 text-violet-700"
+                ? "border-navy-600 text-navy-700"
                 : "border-transparent text-zinc-500 hover:text-zinc-800"
             }`}
           >
@@ -358,7 +635,8 @@ export default function CandidateDetailPage() {
       </div>
 
       {tab === "overview" ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <>
+          <div className="grid gap-6 lg:grid-cols-2">
           <section className="border border-zinc-200 bg-white p-6 shadow-sm">
             <h2 className="mb-2 text-base font-semibold text-zinc-900">
               Candidate
@@ -404,7 +682,7 @@ export default function CandidateDetailPage() {
                     Run{" "}
                     <button
                       onClick={() => runDirect("process")}
-                      className="font-medium text-violet-600 hover:underline"
+                      className="font-medium text-navy-600 hover:underline"
                     >
                       Process CV
                     </button>{" "}
@@ -423,7 +701,7 @@ export default function CandidateDetailPage() {
                       {profileSkills.map((skill) => (
                         <span
                           key={skill}
-                          className="bg-violet-50 px-2 py-0.5 text-sm text-violet-700"
+                          className="bg-navy-50 px-2 py-0.5 text-sm text-navy-700"
                         >
                           {skill}
                         </span>
@@ -462,7 +740,47 @@ export default function CandidateDetailPage() {
               </div>
             )}
           </section>
-        </div>
+          </div>
+
+          <section className="border border-zinc-200 bg-white p-6 shadow-sm">
+            <h2 className="mb-4 text-base font-semibold text-zinc-900">
+              Interview calls
+            </h2>
+            {detail.interviews.length === 0 ? (
+              <p className="text-sm text-zinc-500">
+                No interview calls scheduled yet. Use &quot;Call for interview&quot; once
+                the candidate clears human review (score 40+).
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {detail.interviews.map((interview: Interview) => (
+                  <li
+                    key={interview.id}
+                    className="flex items-center justify-between gap-3 border border-zinc-200 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-zinc-900">
+                        {interview.type === "TECHNICAL"
+                          ? "Technical interview"
+                          : "HR interview"}
+                        {interview.location ? ` · ${interview.location}` : ""}
+                      </p>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {formatDate(interview.scheduled_at)}
+                      </p>
+                      {interview.notes ? (
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {interview.notes}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Badge status={interview.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </>
       ) : null}
 
       {tab === "cv" ? (
@@ -483,7 +801,7 @@ export default function CandidateDetailPage() {
                   className="flex items-center justify-between gap-3 border border-zinc-200 px-4 py-3"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-violet-600 text-white">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center bg-navy-600 text-white">
                       <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                       </svg>
@@ -520,18 +838,18 @@ export default function CandidateDetailPage() {
           {!screening ? (
             <div className="border border-zinc-200 bg-white p-6 shadow-sm">
               <h2 className="text-base font-semibold text-zinc-900">
-                AI screening
+                Screening
               </h2>
               <EmptyState
                 title="No screening result yet"
-                description="Run AI screening to match the candidate against the job requirements. The result is a draft recommendation — the final decision stays with HR."
+                description="Screening matches the candidate against the job requirements. The result is a draft recommendation — the final call stays with HR."
               >
                 <div className="flex flex-wrap gap-2">
                   <Button
                     loading={running === "screen"}
                     onClick={() => runDirect("screen")}
                   >
-                    Run AI screening
+                    Run screening
                   </Button>
                   <Button
                     variant="secondary"
@@ -545,11 +863,11 @@ export default function CandidateDetailPage() {
             </div>
           ) : (
             <>
-              <section className="border border-zinc-200 border-l-4 border-l-violet-500 bg-white p-6 shadow-sm">
+              <section className="border border-zinc-200 border-l-4 border-l-navy-500 bg-white p-6 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <h2 className="text-base font-semibold text-zinc-900">
-                      AI recommendation
+                      Recommendation
                     </h2>
                     <p className="mt-0.5 text-xs text-zinc-400">
                       Draft evaluation by the screening model — for HR
@@ -573,7 +891,7 @@ export default function CandidateDetailPage() {
                     {score !== null ? (
                       <div className="mt-2 h-1.5 w-full bg-zinc-100">
                         <div
-                          className="h-1.5 bg-violet-600"
+                          className="h-1.5 bg-navy-600"
                           style={{ width: `${Math.min(100, Math.max(0, score))}%` }}
                         />
                       </div>
@@ -628,7 +946,7 @@ export default function CandidateDetailPage() {
                   HR review
                 </h2>
                 <p className="mt-0.5 text-xs text-zinc-400">
-                  The AI recommendation is not a decision — final outcomes are
+                  The recommendation is not a decision — final outcomes are
                   set by HR here.
                 </p>
               </div>
@@ -645,6 +963,17 @@ export default function CandidateDetailPage() {
               )}
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
+              <Button
+                onClick={() => openAction("interview")}
+                disabled={!canInterview}
+                title={
+                  canInterview
+                    ? "Schedule an interview call and email the candidate"
+                    : "Needs a screening score of 40+ to move forward"
+                }
+              >
+                Call for interview
+              </Button>
               <Button variant="secondary" onClick={() => openAction("decision")}>
                 Final decision
               </Button>
@@ -684,7 +1013,7 @@ export default function CandidateDetailPage() {
                     <span
                       className={`mt-1 h-2.5 w-2.5 ${
                         index === detail.status_history.length - 1
-                          ? "bg-violet-600"
+                          ? "bg-navy-600"
                           : "bg-emerald-500"
                       }`}
                     />
@@ -722,7 +1051,9 @@ export default function CandidateDetailPage() {
                 ? "Override recommendation"
                 : action === "talent"
                   ? "Add to talent pool"
-                  : "Send email"
+                  : action === "interview"
+                    ? "Schedule interview call"
+                    : "Send email"
         }
       >
         <div className="flex flex-col gap-4">
@@ -784,7 +1115,7 @@ export default function CandidateDetailPage() {
 
           {action === "override" ? (
             <>
-              <Field label="New AI recommendation *">
+              <Field label="New recommendation *">
                 <select
                   value={formData.recommendation ?? ""}
                   onChange={(event) =>
@@ -842,41 +1173,55 @@ export default function CandidateDetailPage() {
                 </select>
               </Field>
 
-              <Field
-                label="AI instructions (optional)"
-                hint="Tell the AI what to say, e.g. 'mention we went with a more senior profile'"
-              >
-                <textarea
-                  rows={2}
-                  value={formData.hrNotes ?? ""}
-                  onChange={(event) =>
-                    setFormData({ ...formData, hrNotes: event.target.value })
-                  }
-                  className={inputClass()}
-                />
-              </Field>
-              <Field label="Tone (optional)">
-                <select
-                  value={formData.tone ?? ""}
-                  onChange={(event) =>
-                    setFormData({ ...formData, tone: event.target.value })
-                  }
-                  className={inputClass()}
-                >
-                  <option value="">Default</option>
-                  <option value="warm">Warm</option>
-                  <option value="firm">Firm / direct</option>
-                  <option value="professional">Professional</option>
-                </select>
-              </Field>
-              <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  onClick={aiEmailAssist}
-                  loading={aiDrafting}
-                >
-                  ✨ AI draft
-                </Button>
+              <div className="border border-navy-200 bg-navy-50/50 p-4">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center bg-navy-600 text-white">
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
+                    </svg>
+                  </span>
+                  <span className="text-sm font-semibold text-navy-700">
+                    Writing assistant
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-zinc-500">
+                  Describe what you would like to say and pick a tone — a first draft
+                  is written for you. Review and edit the subject and body below
+                  before sending.
+                </p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <textarea
+                    rows={2}
+                    value={formData.hrNotes ?? ""}
+                    onChange={(event) =>
+                      setFormData({ ...formData, hrNotes: event.target.value })
+                    }
+                    className={inputClass("bg-white")}
+                    placeholder="e.g. mention we went with a more senior profile"
+                  />
+                  <select
+                    value={formData.tone ?? ""}
+                    onChange={(event) =>
+                      setFormData({ ...formData, tone: event.target.value })
+                    }
+                    className={`${inputClass("bg-white")} w-auto`}
+                  >
+                    <option value="">Tone — default</option>
+                    <option value="warm">Warm</option>
+                    <option value="firm">Firm / direct</option>
+                    <option value="professional">Professional</option>
+                  </select>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={aiEmailAssist}
+                      loading={aiDrafting}
+                    >
+                      Generate draft
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               <Field label="Subject">
@@ -896,6 +1241,143 @@ export default function CandidateDetailPage() {
                     setFormData({ ...formData, body: event.target.value })
                   }
                   className={inputClass()}
+                />
+              </Field>
+            </>
+          ) : null}
+
+          {action === "interview" ? (
+            <>
+              <Field label="Interview type *">
+                <select
+                  value={formData.type ?? ""}
+                  onChange={(event) =>
+                    setFormData({ ...formData, type: event.target.value })
+                  }
+                  className={inputClass()}
+                >
+                  <option value="HR">HR</option>
+                  <option value="TECHNICAL">Technical</option>
+                </select>
+              </Field>
+              <Field
+                label="Date & time *"
+                hint="Enter local time — it is shown in Pakistan time in the candidate email."
+              >
+                <input
+                  type="datetime-local"
+                  value={formData.scheduledAt ?? ""}
+                  onChange={(event) =>
+                    setFormData({ ...formData, scheduledAt: event.target.value })
+                  }
+                  className={inputClass()}
+                />
+              </Field>
+              <Field label="Where *">
+                <select
+                  value={formData.locationMode ?? "onsite"}
+                  onChange={(event) =>
+                    setFormData({
+                      ...formData,
+                      locationMode: event.target.value,
+                    })
+                  }
+                  className={inputClass()}
+                >
+                  <option value="onsite">Onsite — company office</option>
+                  <option value="remote">Remote — meeting link</option>
+                  <option value="custom">Other — own address / map</option>
+                </select>
+              </Field>
+
+              {formData.locationMode === "onsite" ? (
+                companyLocation ? (
+                  <div>
+                    <p className="text-sm text-zinc-600">
+                      {companyLocation}
+                    </p>
+                    <a
+                      href={mapSearchUrl(companyLocation)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-block text-sm font-medium text-navy-600 hover:underline"
+                    >
+                      Open in Google Maps →
+                    </a>
+                    <iframe
+                      src={mapEmbedUrl(companyLocation)}
+                      title="Company location map"
+                      loading="lazy"
+                      className="mt-3 h-44 w-full border border-zinc-200"
+                    />
+                    <p className="mt-2 text-xs text-zinc-500">
+                      The candidate email will include the company address with a
+                      map link.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-zinc-600">
+                    No office location saved yet — add it under{" "}
+                    <Link
+                      href="/dashboard/settings"
+                      className="font-medium text-navy-600 hover:underline"
+                    >
+                      Settings
+                    </Link>{" "}
+                    so the map is included.
+                  </p>
+                )
+              ) : null}
+
+              {formData.locationMode === "remote" ? (
+                <Field label="Meeting link *">
+                  <input
+                    value={formData.location ?? ""}
+                    onChange={(event) =>
+                      setFormData({ ...formData, location: event.target.value })
+                    }
+                    className={inputClass()}
+                    placeholder="e.g. Google Meet https://meet.example/abc"
+                  />
+                </Field>
+              ) : null}
+
+              {formData.locationMode === "custom" ? (
+                <>
+                  <Field label="Address / location">
+                    <input
+                      value={formData.location ?? ""}
+                      onChange={(event) =>
+                        setFormData({ ...formData, location: event.target.value })
+                      }
+                      className={inputClass()}
+                      placeholder="e.g. Head office, 2nd floor, City Center"
+                    />
+                  </Field>
+                  <Field
+                    label="Map link (optional)"
+                    hint="If set, a map link is included in the candidate email."
+                  >
+                    <input
+                      value={formData.mapLink ?? ""}
+                      onChange={(event) =>
+                        setFormData({ ...formData, mapLink: event.target.value })
+                      }
+                      className={inputClass()}
+                      placeholder="https://www.google.com/maps/search/?api=1&q=..."
+                    />
+                  </Field>
+                </>
+              ) : null}
+              <Field label="Notes">
+                <textarea
+                  rows={3}
+                  value={formData.notes ?? ""}
+                  onChange={(event) =>
+                    setFormData({ ...formData, notes: event.target.value })
+                  }
+                  className={inputClass()}
+                  placeholder="e.g. 45 minutes, review the technical case study beforehand"
                 />
               </Field>
             </>

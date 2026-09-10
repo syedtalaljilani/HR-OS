@@ -6,8 +6,10 @@ score, and applies the configured policy:
 - score below AUTO_REJECT_THRESHOLD  -> status REJECTED + rejection email w/ reason
 - score at/above threshold           -> status HR_REVIEW (AI recommends, HR decides)
 
-The applicant never gets SELECTED automatically; only recommendations and
-low-score rejections are automated, and HR can revert any of them.
+That threshold is fixed at 40: anything below is auto-rejected, everything at or
+above lands on the dashboard for human review and a possible interview call. The
+applicant never gets SELECTED automatically; only recommendations and low-score
+rejections are automated, and HR can revert any of them.
 """
 import logging
 import uuid
@@ -23,11 +25,16 @@ logger = logging.getLogger("hros.evaluation")
 
 
 def _run_screen(db: Session, application: Application) -> ScreeningResult:
-    """Run LangGraph screening with a fallback to the legacy service."""
-    try:
-        from app.services import langgraph_screening_service
+    """Run LangGraph screening under a hard timeout with a fallback to the
+    legacy service when the graph is slow, hangs, or fails outright."""
+    from app.services import langgraph_screening_service
 
-        return langgraph_screening_service.screen_application(db, application)
+    try:
+        return langgraph_screening_service.screen_application_capped(
+            db,
+            application,
+            timeout_seconds=settings.AUTO_SCREEN_TIMEOUT_SECONDS,
+        )
     except Exception:
         logger.exception(
             "LangGraph screening failed for %s; falling back to legacy service",
@@ -56,11 +63,10 @@ def auto_evaluate_application(db: Session, application: Application) -> dict:
     rank = None
 
     requires_human = _requires_human_review(screening)
-    floor = settings.AUTO_REJECT_FLOOR
-    # Auto-reject on any sub-threshold score when the evidence is clear. Only
-    # protect candidates in the ambiguous band (score between the floor and the
-    # threshold) who also have unresolved uncertainties — those go to HR.
-    if score < threshold and (not requires_human or score < floor):
+    # Auto-reject every application scoring below the threshold — no exceptions
+    # for uncertain cases. Candidates at/above 40 always go to HR review; the
+    # AI "requires human" flag is still reported for information.
+    if score < threshold:
         rank, total_candidates = application_rank_in_job(db, application)
         detail = _rejection_reason(application, screening)
         reason = f"AI auto-rejection (score {score:.0f}/100 below {threshold}): {detail}"
@@ -196,6 +202,7 @@ def rank_applications(
     from app.db.models.application import ApplicationStatusHistory
 
     query = db.query(Application)
+    query = query.filter(Application.deleted_at.is_(None))
     if job_id is not None:
         query = query.filter(Application.job_id == job_id)
 
@@ -249,23 +256,33 @@ def rank_applications(
 
 
 def run_auto_evaluation(application_id: uuid.UUID) -> None:
-    """Background entrypoint: opens its own session and evaluates application."""
+    """Queue a full auto-evaluation (process + screen + auto-reject policy).
+
+    Kept as a thin wrapper for backward compatibility — the actual work runs in
+    the persistent background screening worker, surviving page changes, refreshes
+    and (to a point) backend restarts.
+    """
     from app.db.database import SessionLocal
+    from app.db.models.application import Application
+    from app.services import screening_queue_service
 
     db = SessionLocal()
     try:
         application = db.get(Application, application_id)
         if application is None:
-            logger.warning("Auto-evaluation skipped: application %s not found", application_id)
+            logger.warning(
+                "Auto-evaluation skipped: application %s not found", application_id
+            )
             return
-        result = auto_evaluate_application(db, application)
-        logger.info(
-            "Auto-evaluation %s: %s",
-            application.application_id,
-            result,
+        screening_queue_service.enqueue(
+            db,
+            application,
+            source=screening_queue_service.SOURCE_AUTO,
+            action=screening_queue_service.ACTION_EVALUATE,
         )
+        logger.info("Auto-evaluation queued for %s", application.application_id)
     except Exception:
-        logger.exception("Auto-evaluation failed for application %s", application_id)
+        logger.exception("Failed to queue auto-evaluation for %s", application_id)
         db.rollback()
     finally:
         db.close()

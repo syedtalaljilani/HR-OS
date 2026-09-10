@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { clearToken, getStoredUser, getToken } from "@/app/hr/_lib/api";
 import { LoadingScreen } from "@/app/hr/_components/Button";
+import {
+  getConversations,
+  getUnreadCount,
+  type Conversation,
+} from "@/app/hr/_lib/api";
 
 const NAV = [
   {
@@ -25,6 +30,16 @@ const NAV = [
     icon: (
       <svg className="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+      </svg>
+    ),
+  },
+  {
+    href: "/dashboard/chat",
+    label: "Chat",
+    match: (p: string) => p.startsWith("/dashboard/chat"),
+    icon: (
+      <svg className="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.784 9.784 0 0 1-2.045-.242L4.5 21.75l1.355-4.104A7.89 7.89 0 0 1 3.75 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
       </svg>
     ),
   },
@@ -74,8 +89,45 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const authed = mounted && !!getToken();
 
+  const [unread, setUnread] = useState(0);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [bellConvs, setBellConvs] = useState<Conversation[]>([]);
+  const bellRef = useRef<HTMLDivElement>(null);
+
+  const refreshUnread = useCallback(async () => {
+    try {
+      const { unread } = await getUnreadCount();
+      setUnread(unread);
+    } catch {
+      // transient
+    }
+  }, []);
+
   useEffect(() => {
-    if (mounted && !authed) {
+    const initial = window.setTimeout(() => void refreshUnread(), 0);
+    const timer = setInterval(() => void refreshUnread(), 10000);
+    return () => {
+      window.clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, [refreshUnread]);
+
+  useEffect(() => {
+    if (pathname === "/dashboard/chat") {
+      window.setTimeout(() => void refreshUnread(), 0);
+      window.setTimeout(() => setBellOpen(false), 0);
+    }
+  }, [pathname, refreshUnread]);
+
+  useEffect(() => {
+    if (!bellOpen) return;
+    getConversations()
+      .then((rows) => setBellConvs(rows.filter((c) => c.unread > 0).slice(0, 6)))
+      .catch(() => setBellConvs([]));
+  }, [bellOpen]);
+
+  useEffect(() => {
+    if (!mounted || !authed) {
       router.replace("/login");
     }
   }, [mounted, authed, router]);
@@ -101,13 +153,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center bg-violet-600 text-white">
+              <span className="flex h-7 w-7 items-center justify-center bg-navy-600 text-white">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84 50.633 50.633 0 0 0-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" />
                 </svg>
               </span>
               <span className="text-base font-bold tracking-tight text-zinc-900">
-                HR <span className="text-violet-600">OS</span>
+                HR <span className="text-navy-600">OS</span>
               </span>
             </Link>
             <span className="hidden text-sm text-zinc-400 sm:inline">
@@ -124,11 +176,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   className={`hidden items-center gap-2 px-3 py-1.5 text-sm font-medium transition md:flex ${
                     active
-                      ? "bg-violet-50 text-violet-700"
+                      ? "bg-navy-50 text-navy-700"
                       : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
                   }`}
                 >
                   {item.label}
+                  {item.href === "/dashboard/chat" && unread > 0 ? (
+                    <span className="ml-1 rounded-full bg-navy-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                      {unread}
+                    </span>
+                  ) : null}
                 </Link>
               );
             })}
@@ -138,12 +195,91 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Link
               href="/"
               target="_blank"
-              className="hidden text-sm font-medium text-zinc-500 hover:text-violet-700 sm:inline"
+              className="hidden text-sm font-medium text-zinc-500 hover:text-navy-700 sm:inline"
             >
               Public site
             </Link>
+            <div ref={bellRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setBellOpen((open) => !open)}
+                title="Notifications"
+                className="relative flex h-8 w-8 items-center justify-center text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+                </svg>
+                {unread > 0 ? (
+                  <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                    {unread}
+                  </span>
+                ) : null}
+              </button>
+
+              {bellOpen ? (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Close notifications"
+                    onClick={() => setBellOpen(false)}
+                    className="fixed inset-0 z-40 cursor-default"
+                  />
+                  <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden border border-zinc-200 bg-white shadow-lg">
+                    <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-2.5">
+                      <p className="text-sm font-semibold text-zinc-900">
+                        Notifications
+                      </p>
+                      {unread > 0 ? (
+                        <span className="rounded-full bg-navy-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                          {unread} new
+                        </span>
+                      ) : null}
+                    </div>
+                    {bellConvs.length === 0 ? (
+                      <p className="px-4 py-8 text-center text-sm text-zinc-500">
+                        {unread > 0
+                          ? "Loading…"
+                          : "No new messages. Candidate replies show up here."}
+                      </p>
+                    ) : (
+                      <ul className="max-h-80 divide-y divide-zinc-100 overflow-y-auto">
+                        {bellConvs.map((conversation) => (
+                          <li key={conversation.application_id}>
+                            <Link
+                              href="/dashboard/chat"
+                              onClick={() => setBellOpen(false)}
+                              className="flex items-start gap-3 px-4 py-3 transition hover:bg-zinc-50"
+                            >
+                              <span className="mt-1 flex h-2.5 w-2.5 shrink-0 rounded-full bg-navy-600" />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-medium text-zinc-900">
+                                  {conversation.candidate_name ?? conversation.candidate_email ?? "Candidate"}
+                                </span>
+                                <span className="block truncate text-xs text-zinc-500">
+                                  {conversation.job_title ?? "Application"}
+                                </span>
+                                <span className="block truncate text-[13px] text-zinc-600">
+                                  {conversation.last_message?.subject ?? "New message"}
+                                </span>
+                              </span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <Link
+                      href="/dashboard/chat"
+                      onClick={() => setBellOpen(false)}
+                      className="block border-t border-zinc-200 px-4 py-2.5 text-center text-sm font-medium text-navy-600 hover:bg-navy-50"
+                    >
+                      Open all chats
+                    </Link>
+                  </div>
+                </>
+              ) : null}
+            </div>
             <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center bg-violet-600 text-xs font-semibold text-white">
+              <span className="flex h-8 w-8 items-center justify-center bg-navy-600 text-xs font-semibold text-white">
                 {initials}
               </span>
               <div className="hidden leading-tight lg:block">
@@ -171,14 +307,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 href={item.href}
                 className={`whitespace-nowrap px-3 py-1.5 text-sm font-medium ${
                   active
-                    ? "bg-violet-50 text-violet-700"
+                    ? "bg-navy-50 text-navy-700"
                     : "text-zinc-600"
                 }`}
               >
-                {item.label}
-              </Link>
-            );
-          })}
+                  {item.label}
+                  {item.href === "/dashboard/chat" && unread > 0 ? (
+                    <span className="ml-1 rounded-full bg-navy-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                      {unread}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
         </div>
       </header>
 

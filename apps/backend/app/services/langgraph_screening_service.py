@@ -4,6 +4,7 @@ The `ai` package lives at the repository root. The FastAPI backend runs from
 `apps/backend`, so we make the repo root importable here.
 """
 import sys
+import threading
 from decimal import Decimal
 from pathlib import Path
 
@@ -40,7 +41,7 @@ def _build_job_description(application: Application) -> str:
 
 
 def _is_uncertain(result: dict) -> bool:
-    """Primary 8B result needs a 14B second look when the case is ambiguous."""
+    """A screening is ambiguous when UNCLEAR or carries unresolved uncertainties."""
     recomm = result.get("recommendation")
     if recomm is not None and getattr(recomm, "recommendation", None) == "UNCLEAR":
         return True
@@ -71,14 +72,109 @@ def _run_graph(
     return graph.invoke(state.as_plain())
 
 
+def _run_graph_capped(
+    *,
+    cv_text: str,
+    job_title: str | None,
+    job_description: str,
+    application_id: str | None,
+    candidate_id: str | None,
+    model: str,
+    timeout_seconds: float,
+) -> dict:
+    """Run the LangGraph pipeline under a hard wall-clock deadline.
+
+    The graph makes several Ollama calls in sequence; when Ollama is cold the
+    total can stretch to many minutes. The auto-evaluation path caps this and
+    falls back to the bounded legacy screening so a CV never waits forever.
+    Only the AI phase runs in the thread — the caller owns the DB session.
+    """
+    box: list[dict] = []
+    errors: list[BaseException] = []
+
+    def _target() -> None:
+        try:
+            box.append(
+                _run_graph(
+                    cv_text=cv_text,
+                    job_title=job_title,
+                    job_description=job_description,
+                    application_id=application_id,
+                    candidate_id=candidate_id,
+                    model=model,
+                )
+            )
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=_target, daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        raise TimeoutError(
+            f"Screening graph exceeded {timeout_seconds}s on model {model}"
+        )
+    if errors:
+        raise errors[0]
+    return box[0]
+
+
 def screen_application(db: Session, application: Application) -> ScreeningResult:
     """Run the LangGraph workflow and persist the result as a ScreeningResult.
 
-    Screening runs on an efficient primary model (Qwen3-8B Q4). Only when the
-    primary result is ambiguous (UNCLEAR recommendation or unresolved
-    uncertainty items) is the workflow re-run on the large fallback model
-    (Qwen3-14B Q4) for a second opinion.
+    Screening runs on Qwen3-8B Q4. Ambiguous (UNCLEAR) cases are only re-run on
+    the second-opinion model when OLLAMA_FALLBACK_EVALUATION_MODEL is set.
     """
+    return _screen_with(db, application, _run_graph)
+
+
+def screen_application_capped(
+    db: Session,
+    application: Application,
+    timeout_seconds: float | None = None,
+) -> ScreeningResult:
+    """Run LangGraph screening under a hard wall-clock deadline.
+
+    Used by the auto-evaluation path so a slow/hung Ollama call never blocks
+    screening forever. On timeout raises TimeoutError so the caller can fall
+    back to the bounded legacy screening. If the cap is 0 it behaves like the
+    uncapped version.
+    """
+    timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else settings.AUTO_SCREEN_TIMEOUT_SECONDS
+    )
+
+    def _runner(
+        *,
+        cv_text: str,
+        job_title: str | None,
+        job_description: str,
+        application_id: str | None,
+        candidate_id: str | None,
+        model: str,
+    ) -> dict:
+        return _run_graph_capped(
+            cv_text=cv_text,
+            job_title=job_title,
+            job_description=job_description,
+            application_id=application_id,
+            candidate_id=candidate_id,
+            model=model,
+            timeout_seconds=timeout,
+        )
+
+    return _screen_with(db, application, _runner)
+
+
+def _screen_with(
+    db: Session,
+    application: Application,
+    run_graph,
+) -> ScreeningResult:
+    """Shared screening body. ``run_graph`` is the graph executor (uncapped or
+    capped); the caller owns the DB session and catches timeout exceptions."""
     cv = application.cv_documents[0] if application.cv_documents else None
     if cv is None:
         raise ValueError("No CV document found for this application")
@@ -92,7 +188,7 @@ def screen_application(db: Session, application: Application) -> ScreeningResult
         cv.extraction_status = ExtractionStatus.COMPLETED
 
     job = application.job
-    result = _run_graph(
+    result = run_graph(
         cv_text=cv_text,
         job_title=job.title,
         job_description=_build_job_description(application),
@@ -102,9 +198,12 @@ def screen_application(db: Session, application: Application) -> ScreeningResult
     )
 
     fallback_used = False
-    if _is_uncertain(result):
+    if (
+        _is_uncertain(result)
+        and settings.OLLAMA_FALLBACK_EVALUATION_MODEL.strip()
+    ):
         fallback_used = True
-        result = _run_graph(
+        result = run_graph(
             cv_text=cv_text,
             job_title=job.title,
             job_description=_build_job_description(application),

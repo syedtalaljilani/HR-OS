@@ -21,6 +21,7 @@ from app.db.models.enums import (
     ExtractionStatus,
     HRDecision,
     Recommendation,
+    ScreeningQueueStatus,
 )
 
 
@@ -52,6 +53,9 @@ class Application(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    deleted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
     )
 
     candidate: Mapped["Candidate"] = relationship()
@@ -180,3 +184,51 @@ class ScreeningResult(Base):
     )
 
     application: Mapped["Application"] = relationship(back_populates="screening_results")
+
+
+class ScreeningQueue(Base):
+    __tablename__ = "screening_queue"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_name: Mapped[str] = mapped_column(String(500), nullable=True)
+    job_title: Mapped[str] = mapped_column(String(500), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="AUTO", server_default="AUTO"
+    )
+    action: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="EVALUATE", server_default="EVALUATE"
+    )
+    status: Mapped[ScreeningQueueStatus] = mapped_column(
+        Enum(ScreeningQueueStatus, name="screening_queue_status"),
+        nullable=False,
+        default=ScreeningQueueStatus.QUEUED,
+    )
+    score: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=True)
+    recommendation: Mapped[str] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str] = mapped_column(Text, nullable=True)
+    queued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    application: Mapped["Application"] = relationship()
+    job: Mapped["Job"] = relationship()

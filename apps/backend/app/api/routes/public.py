@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -20,16 +19,81 @@ from app.schemas.application import (
     ApplicationHistoryOut,
     ApplicationTrackingResponse,
 )
+from app.schemas.invite import InvitePublicOut
 from app.schemas.job import JobOut
 from app.services import (
     application_service,
-    evaluation_service,
     extraction_service,
+    invite_service,
     job_service,
+    settings_service,
 )
 from app.utils.validators import validate_cv_file, validate_file_size
 
 router = APIRouter(prefix="/public", tags=["Public"])
+
+
+def _build_application_data(
+    full_name: str,
+    email: str,
+    phone: str | None,
+    address: str | None,
+    expected_salary: str | None,
+    consent: str,
+    skills: str | None,
+    education: str | None,
+    experience: str | None,
+    profile_data: str | None,
+) -> ApplicationCreate:
+    return ApplicationCreate(
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        address=address,
+        expected_salary=Decimal(expected_salary) if expected_salary else None,
+        consent=consent.strip().lower() in ("true", "1", "yes", "on"),
+        skills=skills,
+        education=education,
+        experience=experience,
+        profile_data=profile_data,
+    )
+
+
+async def _submit_application(
+    db: Session,
+    job: "Job",
+    file: UploadFile,
+    data: ApplicationCreate,
+    *,
+    allow_reapply: bool = False,
+) -> dict:
+    """Shared apply submission used by the public and invite flows."""
+    contents = await file.read()
+    application, raw_token = application_service.create_application(
+        db,
+        job,
+        data,
+        file,
+        contents,
+        allow_reapply=allow_reapply,
+    )
+
+    if settings.AUTO_EVALUATE_ON_APPLY:
+        from app.services import screening_queue_service
+
+        screening_queue_service.enqueue(
+            db,
+            application,
+            source=screening_queue_service.SOURCE_AUTO,
+            action=screening_queue_service.ACTION_EVALUATE,
+        )
+
+    return {
+        "applicationId": application.application_id,
+        "status": application.status.value,
+        "customerId": application.id,
+        "trackingUrl": f"/application/{raw_token}",
+    }
 
 
 @router.post("/cv/extract")
@@ -70,7 +134,6 @@ def get_open_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
 )
 async def apply_for_job(
     job_id: uuid.UUID,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     full_name: str = Form(...),
     email: str = Form(...),
@@ -86,35 +149,87 @@ async def apply_for_job(
 ):
     job = job_service.get_open_job(db, job_id)
 
-    data = ApplicationCreate(
+    data = _build_application_data(
         full_name=full_name,
         email=email,
         phone=phone,
         address=address,
-        expected_salary=Decimal(expected_salary) if expected_salary else None,
-        consent=consent.strip().lower() in ("true", "1", "yes", "on"),
+        expected_salary=expected_salary,
+        consent=consent,
         skills=skills,
         education=education,
         experience=experience,
         profile_data=profile_data,
     )
 
-    contents = await file.read()
-    application, raw_token = application_service.create_application(
-        db, job, data, file, contents
+    return await _submit_application(db, job, file, data)
+
+
+@router.get("/invitations/{raw_token}", response_model=InvitePublicOut)
+def get_invitation(raw_token: str, db: Session = Depends(get_db)):
+    """Resolve a talent-pool invitation link (public landing page data)."""
+    _, candidate, job = invite_service.resolve_invite(db, raw_token)
+    company_name, _, _ = settings_service.org_identity(db)
+    return InvitePublicOut(
+        job_id=job.id,
+        job_title=job.title,
+        job_location=job.location,
+        candidate_name=candidate.full_name,
+        candidate_email=candidate.email,
+        company_name=company_name,
     )
 
-    if settings.AUTO_EVALUATE_ON_APPLY:
-        background_tasks.add_task(
-            evaluation_service.run_auto_evaluation, application.id
-        )
 
-    return {
-        "applicationId": application.application_id,
-        "status": application.status.value,
-        "customerId": application.id,
-        "trackingUrl": f"/application/{raw_token}",
-    }
+@router.post(
+    "/invitations/{raw_token}/apply",
+    status_code=status.HTTP_201_CREATED,
+)
+async def apply_via_invitation(
+    raw_token: str,
+    file: UploadFile = File(...),
+    full_name: str = Form(...),
+    email: str = Form(...),
+    phone: str | None = Form(default=None),
+    address: str | None = Form(default=None),
+    expected_salary: str | None = Form(default=None),
+    consent: str = Form(default="true"),
+    skills: str | None = Form(default=None),
+    education: str | None = Form(default=None),
+    experience: str | None = Form(default=None),
+    profile_data: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """Submit (possibly updated) CV via a talent-pool invitation link.
+
+    Runs the exact same flow as a normal application: creates the Application,
+    marks the invite used, then triggers the usual AI screening + auto
+    reject/edit email pipeline.
+    """
+    invite, _, job = invite_service.resolve_invite(db, raw_token)
+
+    data = _build_application_data(
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        address=address,
+        expected_salary=expected_salary,
+        consent=consent,
+        skills=skills,
+        education=education,
+        experience=experience,
+        profile_data=profile_data,
+    )
+
+    result = await _submit_application(
+        db,
+        job,
+        file,
+        data,
+        allow_reapply=True,
+    )
+    invite_service.mark_invite_used(db, invite)
+    db.commit()
+    return result
 
 
 @router.get("/applications/{raw_token}", response_model=ApplicationTrackingResponse)

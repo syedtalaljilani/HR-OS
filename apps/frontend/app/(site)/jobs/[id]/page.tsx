@@ -56,7 +56,7 @@ export default async function JobDetailPage({
 
         <a
           href="#apply"
-          className="inline-flex items-center justify-center bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+          className="inline-flex items-center justify-center bg-navy-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700"
         >
           Apply now
         </a>

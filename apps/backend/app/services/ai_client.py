@@ -26,6 +26,9 @@ def chat_json(
         "format": "json",
         "stream": False,
         "keep_alive": settings.OLLAMA_KEEP_ALIVE,
+        # Qwen3 reasons by default; structured HR tasks do not need the CoT,
+        # and disabling it makes screening/CV parsing far faster.
+        "think": False,
         "options": options,
     }
     req = urllib.request.Request(

@@ -3,6 +3,7 @@
 The `ai` package lives at the repository root. The FastAPI backend runs from
 `apps/backend`, so we make the repo root importable here.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -19,23 +20,61 @@ from app.core.config import settings
 from app.services import settings_service
 
 
-def _identity(db: Session | None) -> tuple[str, str]:
-    """(company_name, hr_name) from DB when available; env is the fallback."""
+def _identity(db: Session | None) -> tuple[str, str, str]:
+    """(company_name, hr_name, company_location) from DB when available;
+    env is the fallback."""
     if db is not None:
         try:
             return settings_service.org_identity(db)
         except Exception:
             pass
-    return settings.COMPANY_NAME, settings.HR_NAME
+    return settings.COMPANY_NAME, settings.HR_NAME, settings.COMPANY_LOCATION
+
+
+_TOKEN_PAIRS = [
+    ("{COMPANY_NAME}", "company_name"),
+    ("[COMPANY_NAME]", "company_name"),
+    ("{HR_NAME}", "hr_name"),
+    ("[HR_NAME]", "hr_name"),
+]
+
+
+def _clean_placeholders(
+    body: str,
+    company_name: str | None,
+    hr_name: str | None,
+) -> str:
+    """Deterministically finalize the sign-off.
+
+    Small models occasionally echo the prompt examples as literal
+    "{COMPANY_NAME}" / "{HR_NAME}" (or "[COMPANY_NAME]") placeholders. Replace
+    them with the real identity; when a name is missing, drop the placeholder
+    and tidy any dangling artifact such as "on behalf of ".
+    """
+    if not body:
+        return body
+    values = {"company_name": company_name or "", "hr_name": hr_name or ""}
+    for token, key in _TOKEN_PAIRS:
+        body = body.replace(token, values[key])
+    if not company_name:
+        body = re.sub(r"(?i)[ \t]*on behalf of[ \t]*\.?[ \t]*", "", body)
+    if not hr_name:
+        body = re.sub(r"(?i)Best regards,[ \t]*$", "Best regards", body)
+    body = re.sub(r"[\[\{\(][A-Z][A-Z0-9_ ]*[\]\}\)]", "", body)
+    body = body.replace(",\n", "\n")
+    body = re.sub(r"[ \t]{2,}", " ", body)
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    return body.strip()
 
 
 def _run(state: EmailAgentState) -> dict:
     """Run the email graph and return {subject, body, model}."""
     result = graph.invoke(state.as_plain())
     draft = result.get("draft") or {}
+    body = draft.get("body", "")
     return {
         "subject": draft.get("subject", ""),
-        "body": draft.get("body", ""),
+        "body": _clean_placeholders(body, state.company_name, state.hr_name),
         "model": result.get("model"),
     }
 
@@ -53,7 +92,7 @@ def _base_state(
 ) -> EmailAgentState:
     """Shared state: email drafting runs on the dedicated tiny EMAIL_MODEL and
     signs off with the configured company / HR identity (DB first, env fallback)."""
-    company_name, hr_name = _identity(db)
+    company_name, hr_name, _ = _identity(db)
     return EmailAgentState(
         email_type=email_type,
         candidate_name=candidate_name,

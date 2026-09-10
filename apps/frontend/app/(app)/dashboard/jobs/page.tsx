@@ -75,7 +75,7 @@ export default function JobsPage() {
       });
     } catch (caught) {
       setAiError(
-        caught instanceof Error ? caught.message : "AI generation failed"
+        caught instanceof Error ? caught.message : "Generation failed"
       );
     } finally {
       setAiBusy(false);
@@ -251,21 +251,21 @@ export default function JobsPage() {
             />
           </Field>
 
-          <div className="border border-violet-200 bg-violet-50/50 p-4">
+          <div className="border border-navy-200 bg-navy-50/50 p-4">
             <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center bg-violet-600 text-white">
+              <span className="flex h-6 w-6 items-center justify-center bg-navy-600 text-white">
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" />
                 </svg>
               </span>
-              <span className="text-sm font-semibold text-violet-700">
-                AI assistant
+              <span className="text-sm font-semibold text-navy-700">
+                Writing assistant
               </span>
             </div>
             <p className="mt-2 text-xs text-zinc-500">
-              Describe the role in your own words, or give a prompt, and the AI
-              agent will draft a job description. Review it in the form below
-              before saving.
+              Describe the role in your own words, or give a short prompt, and a
+              first-draft job description is written for you. Review it in the
+              form below before saving.
             </p>
             <div className="mt-3 flex flex-col gap-2">
               <input
@@ -289,7 +289,7 @@ export default function JobsPage() {
                 disabled={!aiInput.trim()}
                 onClick={generateWithAI}
               >
-                Generate with AI
+                Generate job description
               </Button>
             </div>
           </div>

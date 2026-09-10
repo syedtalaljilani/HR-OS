@@ -98,12 +98,16 @@ def process_application(db: Session, application: Application) -> dict:
 
     duplicates = extraction_service.detect_duplicates(db, candidate, cv)
 
-    _transition_status(
-        db,
-        application,
-        ApplicationStatus.PROCESSING,
-        reason="CV processing completed" if validation["valid"] else "CV processing completed with issues",
-    )
+    # Only move APPLIED → PROCESSING. Re-processing an application that is
+    # already past the first step (HR_REVIEW, SHORTLISTED, REJECTED, …) would
+    # otherwise silently downgrade a human decision, e.g. REJECTED → PROCESSING.
+    if application.status == ApplicationStatus.APPLIED:
+        _transition_status(
+            db,
+            application,
+            ApplicationStatus.PROCESSING,
+            reason="CV processing completed" if validation["valid"] else "CV processing completed with issues",
+        )
 
     db.commit()
 

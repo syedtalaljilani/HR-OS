@@ -18,7 +18,7 @@ export default function Modal({
         className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden border-t-4 border-t-violet-600 bg-white shadow-xl">
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden border-t-4 border-t-navy-600 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-zinc-900">{title}</h2>
           <button
@@ -47,8 +47,8 @@ export function EmptyState({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center  border border-dashed border-zinc-300 bg-violet-50/50 px-6 py-14 text-center">
-      <div className="flex h-12 w-12 items-center justify-center bg-violet-100 text-violet-600">
+    <div className="flex flex-col items-center justify-center  border border-dashed border-zinc-300 bg-navy-50/50 px-6 py-14 text-center">
+      <div className="flex h-12 w-12 items-center justify-center bg-navy-100 text-navy-600">
         <svg
           className="h-6 w-6"
           viewBox="0 0 24 24"

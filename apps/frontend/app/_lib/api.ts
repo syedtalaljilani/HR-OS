@@ -56,6 +56,31 @@ export async function trackApplication(
   return res.json();
 }
 
+export type InvitationInfo = {
+  job_id: string;
+  job_title: string;
+  job_location: string | null;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  company_name: string;
+};
+
+export async function getInvitation(token: string): Promise<InvitationInfo> {
+  const res = await fetch(
+    `${API_BASE}/public/invitations/${encodeURIComponent(token)}`,
+    { cache: "no-store" }
+  );
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(
+      typeof data?.detail === "string"
+        ? data.detail
+        : "This invitation is not valid"
+    );
+  }
+  return data as InvitationInfo;
+}
+
 export function formatSalary(
   min: string | null,
   max: string | null

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "HR OS",
-  description: "AI-assisted recruitment platform.",
+  description: "Recruitment and hiring platform.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

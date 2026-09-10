@@ -5,6 +5,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.db.models.enums import ApplicationStatus, ExtractionStatus, HRDecision
+from app.schemas.interview import InterviewOut
 
 
 class ApplicationCreate(BaseModel):
@@ -42,6 +43,8 @@ class ApplicationOut(BaseModel):
     consent: bool
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
+    screening: "ScreeningOut | None" = None
 
 
 class ApplicationDetail(ApplicationOut):
@@ -50,8 +53,8 @@ class ApplicationDetail(ApplicationOut):
     candidate_phone: str | None = None
     job_title: str | None = None
     cv_documents: list["CVDocumentOut"] = []
-    screening: "ScreeningOut | None" = None
     status_history: list["ApplicationHistoryOut"] = []
+    interviews: list["InterviewOut"] = []
 
 
 class CVDocumentOut(BaseModel):

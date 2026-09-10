@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_db, require_hr_or_admin
 from app.db.models import Application, User
 from app.db.models.email import Email
-from app.db.models.enums import EmailType
+from app.db.models.enums import EmailDirection, EmailType
 from app.services import email_agent_service, email_service
 
 router = APIRouter(
@@ -41,12 +41,15 @@ class EmailOut(BaseModel):
     id: uuid.UUID
     application_id: uuid.UUID | None
     type: EmailType
+    direction: EmailDirection
+    sender_email: str | None = None
     recipient: str
     subject: str
     body: str | None = None
     status: str
     sent_at: object | None
     created_at: object | None
+    read_at: object | None = None
 
 
 def _get_application(db: Session, application_id: uuid.UUID) -> Application:
@@ -94,7 +97,7 @@ def email_history(
     rows = (
         db.query(Email)
         .filter(Email.application_id == application.id)
-        .order_by(Email.created_at.desc())
+        .order_by(Email.created_at.asc(), Email.id.asc())
         .all()
     )
     return [EmailOut.model_validate(e) for e in rows]

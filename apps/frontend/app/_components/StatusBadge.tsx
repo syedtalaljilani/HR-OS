@@ -3,7 +3,7 @@ import { formatStatus } from "@/app/_lib/api";
 const PALETTE: Record<string, string> = {
   APPLIED: "bg-slate-100 text-slate-700 ring-slate-300",
   PROCESSING: "bg-blue-50 text-blue-700 ring-blue-300",
-  HR_REVIEW: "bg-violet-50 text-violet-700 ring-violet-300",
+  HR_REVIEW: "bg-navy-50 text-navy-700 ring-navy-300",
   SHORTLISTED: "bg-cyan-50 text-cyan-700 ring-cyan-300",
   INTERVIEW_SCHEDULED: "bg-amber-50 text-amber-700 ring-amber-300",
   TECHNICAL_INTERVIEW: "bg-amber-50 text-amber-700 ring-amber-300",

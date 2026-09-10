@@ -20,7 +20,7 @@ export default async function HomePage() {
     <main className="flex-1">
       <section className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex w-full max-w-3xl flex-col items-center px-6 py-20 text-center">
-          <span className="border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+          <span className="border border-navy-200 bg-navy-50 px-3 py-1 text-xs font-medium text-navy-700">
             Now hiring
           </span>
           <h1 className="mt-5 text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl">
@@ -32,7 +32,7 @@ export default async function HomePage() {
           </p>
           <a
             href="#positions"
-            className="mt-7 inline-flex items-center bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
+            className="mt-7 inline-flex items-center bg-navy-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-700"
           >
             Explore open positions
           </a>
@@ -68,10 +68,10 @@ export default async function HomePage() {
           </div>
         )}
 
-        <div className="mt-12 border border-zinc-200 bg-violet-50/50 px-6 py-5 text-center">
+        <div className="mt-12 border border-zinc-200 bg-navy-50/50 px-6 py-5 text-center">
           <p className="text-sm text-zinc-600">
             Already applied?{" "}
-            <Link href="/track" className="font-medium text-violet-700 hover:underline">
+            <Link href="/track" className="font-medium text-navy-700 hover:underline">
               Track your application
             </Link>
           </p>

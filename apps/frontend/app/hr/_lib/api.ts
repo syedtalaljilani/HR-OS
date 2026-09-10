@@ -121,6 +121,7 @@ export type ApplicationSummary = {
   consent: boolean;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 };
 
 export type CVDocument = {
@@ -161,6 +162,24 @@ export type HistoryItem = {
   created_at: string;
 };
 
+export type Interview = {
+  id: string;
+  application_id: string;
+  type: "HR" | "TECHNICAL";
+  scheduled_at: string;
+  status: "SCHEDULED" | "COMPLETED" | "CANCELLED";
+  location: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type ScheduleInterviewInput = {
+  type: "HR" | "TECHNICAL";
+  scheduled_at: string;
+  location?: string;
+  notes?: string;
+};
+
 export type ApplicationDetail = ApplicationSummary & {
   candidate_name: string | null;
   candidate_email: string | null;
@@ -169,6 +188,7 @@ export type ApplicationDetail = ApplicationSummary & {
   cv_documents: CVDocument[];
   screening: Screening | null;
   status_history: HistoryItem[];
+  interviews: Interview[];
 };
 
 export type Candidate = {
@@ -179,6 +199,7 @@ export type Candidate = {
   address: string | null;
   profile_data: Record<string, unknown> | null;
   created_at: string;
+  deleted_at: string | null;
 };
 
 export type TalentPoolEntry = {
@@ -223,14 +244,66 @@ export function formatStatus(value: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export async function getApplicationDetails(): Promise<ApplicationDetail[]> {
-  const summaries = await api<ApplicationSummary[]>("/applications");
+export async function getApplicationDetails(
+  scoreMin?: number
+): Promise<ApplicationDetail[]> {
+  const query = scoreMin === undefined ? "" : `?score_min=${scoreMin}`;
+  const summaries = await api<ApplicationSummary[]>(`/applications${query}`);
   const details = await Promise.all(
     summaries.map((app) =>
       api<ApplicationDetail>(`/applications/${app.id}`).catch(() => null)
     )
   );
   return details.filter((d): d is ApplicationDetail => d !== null);
+}
+
+export async function getDeletedApplications(): Promise<ApplicationDetail[]> {
+  const summaries = await api<ApplicationSummary[]>(
+    "/applications?include_deleted=true"
+  );
+  const deleted = summaries.filter((app) => app.deleted_at !== null);
+  const details = await Promise.all(
+    deleted.map((app) =>
+      api<ApplicationDetail>(`/applications/${app.id}?include_deleted=true`).catch(
+        () => null
+      )
+    )
+  );
+  return details.filter((d): d is ApplicationDetail => d !== null);
+}
+
+export async function deleteApplication(
+  applicationId: string
+): Promise<ApplicationSummary> {
+  return api<ApplicationSummary>(`/applications/${applicationId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function recoverApplication(
+  applicationId: string
+): Promise<ApplicationSummary> {
+  return api<ApplicationSummary>(`/applications/${applicationId}/recover`, {
+    method: "POST",
+  });
+}
+
+export async function deleteCandidate(candidateId: string): Promise<Candidate> {
+  return api<Candidate>(`/candidates/${candidateId}`, { method: "DELETE" });
+}
+
+export async function recoverCandidate(candidateId: string): Promise<Candidate> {
+  return api<Candidate>(`/candidates/${candidateId}/recover`, { method: "POST" });
+}
+
+export async function scheduleInterview(
+  applicationId: string,
+  data: ScheduleInterviewInput
+): Promise<Interview> {
+  return api<Interview>(`/applications/${applicationId}/interview`, {
+    method: "POST",
+    body: data as unknown as Record<string, unknown>,
+  });
 }
 
 export type RankedApplication = {
@@ -279,4 +352,113 @@ export async function draftEmailWithAI(
     `/applications/${applicationId}/email/assistant`,
     { method: "POST", body: data as unknown as Record<string, unknown> }
   );
+}
+
+export type EmailMessage = {
+  id: string;
+  application_id: string | null;
+  type: string;
+  direction: "INBOUND" | "OUTBOUND";
+  sender_email: string | null;
+  recipient: string;
+  subject: string;
+  body: string | null;
+  status: string;
+  sent_at: string | null;
+  created_at: string | null;
+  read_at: string | null;
+};
+
+export async function getEmailThread(
+  applicationId: string
+): Promise<EmailMessage[]> {
+  return api<EmailMessage[]>(`/applications/${applicationId}/email`);
+}
+
+export async function sendChatEmail(
+  applicationId: string,
+  data: { type: string; subject: string; body: string }
+): Promise<EmailMessage> {
+  return api<EmailMessage>(`/applications/${applicationId}/email`, {
+    method: "POST",
+    body: data as unknown as Record<string, unknown>,
+  });
+}
+
+export async function fetchMailbox(): Promise<{
+  enabled: boolean;
+  processed: unknown[];
+  summaries: unknown[];
+}> {
+  return api("/emails/fetch", { method: "POST" });
+}
+
+export type Conversation = {
+  application_id: string;
+  candidate_id: string | null;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  job_title: string | null;
+  last_message: {
+    direction: string;
+    subject: string;
+    body: string | null;
+    created_at: string | null;
+  } | null;
+  unread: number;
+  updated_at: string | null;
+};
+
+export async function getConversations(): Promise<Conversation[]> {
+  return api<Conversation[]>("/emails/conversations");
+}
+
+export async function getUnreadCount(): Promise<{ unread: number }> {
+  return api<{ unread: number }>("/emails/unread-count");
+}
+
+export async function markConversationRead(
+  applicationId: string
+): Promise<{ ok: boolean }> {
+  return api(`/emails/conversations/${applicationId}/read`, {
+    method: "POST",
+  });
+}
+
+export type ScreeningQueueEntry = {
+  id: string;
+  application_id: string;
+  job_id: string;
+  candidate_name: string | null;
+  job_title: string | null;
+  source: string;
+  action: string;
+  status: "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED";
+  score: number | null;
+  recommendation: string | null;
+  error_message: string | null;
+  queued_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type ScreeningQueueStats = {
+  QUEUED: number;
+  PROCESSING: number;
+  COMPLETED: number;
+  FAILED: number;
+  total: number;
+};
+
+export async function getScreeningQueue(
+  status?: string,
+  limit: number = 50
+): Promise<ScreeningQueueEntry[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (status) params.set("status", status);
+  return api<ScreeningQueueEntry[]>(`/screening-queue?${params.toString()}`);
+}
+
+export async function getScreeningQueueStats(): Promise<ScreeningQueueStats> {
+  return api<ScreeningQueueStats>("/screening-queue/stats");
 }
