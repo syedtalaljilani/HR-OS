@@ -34,12 +34,16 @@ from app.db.models.enums import (
     EmailDirection,
     EmailStatus,
     EmailType,
+    InterviewRequestStatus,
+    InterviewRequestType,
     InterviewStatus,
 )
-from app.db.models.interview import Interview
+from app.db.models.interview import Interview, InterviewRequest
 from app.services import audit_service as audit
 from app.services import email_agent_service
 from app.services.email_service import record_email
+from app.services.interview_service import as_utc, create_slot_request
+from app.services.slot_parser import build_proposed_at, extract_requested_slot
 
 logger = logging.getLogger("hros.reply-agent")
 
@@ -65,6 +69,183 @@ def _interview_time_hr_notes(interview: Interview) -> str:
     if interview.location:
         parts.append(f"Interview location / how: {interview.location}.")
     return " ".join(parts)
+
+
+def _reschedule_link(interview: "Interview | None") -> str | None:
+    token = getattr(interview, "reschedule_token", None)
+    if token:
+        return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/reschedule/{token}"
+    return None
+
+
+def _append_reschedule_link(body: str, interview: "Interview | None") -> str:
+    link = _reschedule_link(interview)
+    if not link:
+        return body
+    return (body or "") + f"\n\nNeed a different time? Pick another slot here:\n{link}"
+
+
+def _open_awaiting_request(
+    db: Session, application: Application
+) -> InterviewRequest | None:
+    return (
+        db.query(InterviewRequest)
+        .filter(
+            InterviewRequest.application_id == application.id,
+            InterviewRequest.type == InterviewRequestType.NEW_SLOT,
+            InterviewRequest.status == InterviewRequestStatus.PENDING,
+            InterviewRequest.awaiting_time.is_(True),
+        )
+        .order_by(InterviewRequest.created_at.desc())
+        .first()
+    )
+
+
+def _draft_slot_reply(
+    db: Session,
+    candidate: Candidate,
+    job_title: str | None,
+    *,
+    kind: str,
+    request: InterviewRequest,
+    interview: Interview,
+) -> dict:
+    current = _format_when(interview.scheduled_at)
+    if kind == "ask_time":
+        day = (
+            request.proposed_at.astimezone(ZoneInfo("Asia/Karachi")).strftime(
+                "%A, %d %B"
+            )
+            if request.proposed_at
+            else "that day"
+        )
+        hr_notes = (
+            "The candidate asked to move their interview but did NOT give a time yet "
+            f"(they mentioned the date {day}). The current interview is {current} "
+            f"for {job_title or 'the position'}. Reply briefly and warmly and ONLY ask "
+            "what time works best on that date (one working example such as 03:00 PM). "
+            "Do NOT confirm or change anything yet."
+        )
+        fallback_subject = "Re: your interview time"
+        fallback_body = (
+            f"Thank you for letting us know about the date change.\n\n"
+            f"Which time works best for you on {day}? For example 03:00 PM or "
+            f"04:30 PM — once we have the exact time we will confirm it with you.\n\n"
+            "Best regards,\nHR Team"
+        )
+    else:
+        when = _format_when(request.proposed_at)
+        hr_notes = (
+            "Forward the candidate's request to move the interview to "
+            f"{when} for {job_title or 'the position'} for HR approval. Reply briefly "
+            "and warmly, acknowledging the request and saying it has been forwarded to "
+            "the hiring team who will confirm soon."
+        )
+        fallback_subject = "Re: your interview time"
+        fallback_body = (
+            f"Thank you for the time you suggested.\n\n"
+            f"We have noted your request for {when} and forwarded it to the hiring "
+            "team for confirmation. You will receive a confirmation shortly.\n\n"
+            "Best regards,\nHR Team"
+        )
+    try:
+        draft = email_agent_service.draft_email(
+            email_type="REPLY",
+            candidate_name=candidate.full_name,
+            job_title=job_title,
+            context={
+                "INTERVIEW_TIME": when if kind != "ask_time" else current,
+                "INTERVIEW_LOCATION": interview.location
+                or settings.COMPANY_LOCATION
+                or "to be announced",
+            },
+            hr_notes=hr_notes,
+            db=db,
+        )
+        return {
+            "subject": draft.get("subject") or fallback_subject,
+            "body": draft.get("body") or fallback_body,
+        }
+    except Exception:
+        logger.exception("slot reply draft failed; using fallback template")
+        return {"subject": fallback_subject, "body": fallback_body}
+
+
+def _handle_slot_request(
+    db: Session,
+    *,
+    application: Application,
+    interview: Interview,
+    candidate: Candidate,
+    slot: dict,
+    query: str,
+    job_title: str | None,
+) -> dict | None:
+    has_date = slot.get("date") is not None
+    has_time = slot.get("time") is not None
+
+    if has_date and not has_time:
+        request = create_slot_request(
+            db,
+            interview,
+            proposed_at=build_proposed_at(slot),
+            awaiting_time=True,
+            reason=query,
+        )
+        draft = _draft_slot_reply(
+            db, candidate, job_title, kind="ask_time", request=request, interview=interview
+        )
+    elif has_time:
+        ctx_date = slot.get("date")
+        if ctx_date is None:
+            pending = _open_awaiting_request(db, application)
+            if pending is None or pending.proposed_at is None:
+                return None
+            ctx_date = pending.proposed_at.astimezone(
+                ZoneInfo("Asia/Karachi")
+            ).date()
+        proposed = build_proposed_at({"date": ctx_date, "time": slot["time"]})
+        if proposed is None:
+            return None
+        request = create_slot_request(
+            db,
+            interview,
+            proposed_at=proposed,
+            awaiting_time=False,
+            reason=query,
+        )
+        draft = _draft_slot_reply(
+            db, candidate, job_title, kind="forwarded", request=request, interview=interview
+        )
+    else:
+        return None
+
+    reply_subject = draft["subject"]
+    if reply_subject and not reply_subject.lower().startswith(("re:", "re ")):
+        reply_subject = f"Re: {reply_subject}"
+    email = record_email(
+        db,
+        application_id=application.id,
+        email_type=EmailType.REPLY,
+        recipient=candidate.email,
+        subject=reply_subject or "Re: your interview time",
+        body=_append_reschedule_link(draft["body"], interview),
+        send=True,
+    )
+    db.commit()
+    return {
+        "note": "Slot request handled by the agent.",
+        "candidate_name": candidate.full_name,
+        "application_id": str(application.id),
+        "interview_id": str(interview.id),
+        "awaiting_time": request.awaiting_time,
+        "proposed_at": (
+            request.proposed_at.isoformat() if request.proposed_at else None
+        ),
+        "email_id": str(email.id),
+        "subject": email.subject,
+        "body": email.body,
+    }
 
 
 _AUTO_BOUNCE_HINTS = (
@@ -235,6 +416,24 @@ def handle_reply(
         if interview.location:
             context["INTERVIEW_LOCATION"] = interview.location
 
+    # Human-in-the-loop slot requests: when the candidate asks to move the
+    # interview and states a date, the agent first asks for the time (no request
+    # yet) and only once a full date + time is known does it generate a
+    # PENDING request that HR approves from the dashboard.
+    slot = extract_requested_slot(query, now=now)
+    if slot["intent"] and interview is not None and application is not None:
+        handled = _handle_slot_request(
+            db,
+            application=application,
+            interview=interview,
+            candidate=candidate,
+            slot=slot,
+            query=query,
+            job_title=job_title,
+        )
+        if handled:
+            return handled
+
     draft = email_agent_service.draft_email(
         email_type="REPLY",
         candidate_name=candidate.full_name,
@@ -265,7 +464,7 @@ def handle_reply(
         email_type=EmailType.REPLY,
         recipient=candidate.email,
         subject=reply_subject,
-        body=draft["body"],
+        body=_append_reschedule_link(draft["body"], interview),
         send=True,
     )
     return {
@@ -496,7 +695,7 @@ def _inbox_filters(db: Session) -> str:
     unseen newsletters/newsletter threads is left completely untouched.
 
     The window is date-based, not UNSEEN-based: a candidate who read (and Gmail
-    auto-marked \Seen) their reply should still show up in the dashboard chat.
+    auto-marked as Seen) their reply should still show up in the dashboard chat.
     Deduplication in ``_store_inbound`` makes old, already-fetched messages a
     no-op.
     """
@@ -702,7 +901,7 @@ def send_interview_reminders(db: Session) -> dict:
             email_type=EmailType.INTERVIEW,
             recipient=candidate.email,
             subject=f"Interview Reminder for {job_title or 'your interview'}",
-            body=draft["body"],
+            body=_append_reschedule_link(draft["body"], interview),
             send=True,
         )
         interview.reminder_sent_at = now

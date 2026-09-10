@@ -23,11 +23,18 @@ from app.db.session import get_db
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    import threading
+
+    from app.core.config import settings
     from app.services import reply_agent_service
     from app.services import screening_queue_service
 
     reply_agent_service.start_scheduler()
     screening_queue_service.start_worker()
+    if settings.OCR_WARMUP_ON_STARTUP:
+        from app.services.extraction_service import warm_ocr_model
+
+        threading.Thread(target=warm_ocr_model, daemon=True, name="ocr-warmup").start()
     yield
 
 
@@ -43,6 +50,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],

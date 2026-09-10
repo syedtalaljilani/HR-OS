@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     # Faster/smaller model for CV profile parsing. Falls back to OLLAMA_MODEL
     # when empty (e.g. "qwen2.5:3b" — already small and quick).
     OLLAMA_PROFILE_MODEL: str = ""
+    # Vision OCR model for scanned / image-only PDF CVs (run: ollama pull deepseek-ocr).
+    # Only invoked when a PDF has no native text layer.
+    OLLAMA_OCR_MODEL: str = "deepseek-ocr"
+    # Scanned-CV OCR limits: first N pages rendered at DPI (speed vs accuracy).
+    OCR_MAX_PAGES: int = 5
+    OCR_DPI: int = 150
+    # Warm-up the OCR model in the background on startup so the first scanned
+    # CV is not stuck behind a multi-GB cold load.
+    OCR_WARMUP_ON_STARTUP: bool = True
     # How long Ollama keeps the model loaded in memory. "10m" avoids cold-start
     # latency on repeat calls. "-1" keeps it loaded forever (uses more RAM),
     # "0" unloads immediately.

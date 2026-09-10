@@ -127,7 +127,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [bellOpen]);
 
   useEffect(() => {
-    if (!mounted || !authed) {
+    if (!mounted) return;
+    if (!authed) {
       router.replace("/login");
     }
   }, [mounted, authed, router]);

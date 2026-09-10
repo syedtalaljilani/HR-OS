@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -93,7 +94,19 @@ def get_or_create_candidate(
         profile_data=form_profile or None,
     )
     db.add(candidate)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        # A row for this email already exists (e.g. it was soft-deleted or a
+        # concurrent submit inserted it between our SELECT and INSERT). Reuse
+        # the existing row instead of failing the whole request with a 500.
+        db.rollback()
+        candidate = db.query(Candidate).filter(Candidate.email == email).first()
+        if candidate is None:
+            raise
+        if candidate.deleted_at is not None:
+            candidate.deleted_at = None
+        db.flush()
     return candidate
 
 

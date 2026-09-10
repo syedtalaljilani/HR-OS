@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import io
 import re
@@ -101,6 +102,75 @@ def extract_text_from_cv_bytes(contents: bytes, filename: str) -> str:
     raise HTTPException(status_code=400, detail="Unsupported CV file type")
 
 
+def _render_pdf_pages_base64(contents: bytes) -> list[str]:
+    """Render the first few pages of a PDF to PNGs (base64) for OCR.
+
+    Uses PyMuPDF so no external poppler/PIL dependency is needed. Returns an
+    empty list if the PDF cannot be rasterized.
+    """
+    try:
+        import pymupdf
+
+        doc = pymupdf.open(stream=contents, filetype="pdf")
+    except Exception:
+        return []
+    try:
+        pages: list[str] = []
+        last = min(len(doc), max(1, settings.OCR_MAX_PAGES))
+        for page_index in range(last):
+            try:
+                page = doc[page_index]
+                pix = page.get_pixmap(dpi=max(72, int(settings.OCR_DPI)))
+                pages.append(base64.b64encode(pix.tobytes("png")).decode("ascii"))
+            except Exception:
+                continue
+        return pages
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
+
+def ocr_text_from_pdf(contents: bytes) -> str:
+    """OCR a scanned/image PDF via the local vision model (deepseek-ocr).
+
+    Pages are rendered and processed ONE image per model call: batched
+    multi-image requests make deepseek-ocr degenerate into chat-template
+    tokens instead of text. Raises ``AIUnavailable`` when OCR cannot be
+    produced so callers keep their existing fallback behavior.
+    """
+    from app.services import ai_client
+
+    pages = _render_pdf_pages_base64(contents)
+    if not pages:
+        raise ai_client.AIUnavailable("Could not rasterize PDF pages for OCR")
+    sections: list[str] = []
+    for page_index, page in enumerate(pages, start=1):
+        text = ai_client.ocr_images([page], model=settings.OLLAMA_OCR_MODEL)
+        text = _strip_ocr_markers(text)
+        if text:
+            sections.append(f"[Page {page_index}]\n{text}")
+    return "\n\n".join(sections).strip()
+
+
+def _strip_ocr_markers(text: str) -> str:
+    """Drop DeepSeek-OCR branch/marker lines and normalize whitespace."""
+    kept: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if (
+            "<|" in line
+            or line.startswith("#")
+            or re.fullmatch(r"[#*_\-=|]+\s*", line)
+        ):
+            continue
+        kept.append(re.sub(r"\s{2,}", " ", line))
+    return "\n".join(kept).strip()
+
+
 def _fallback_extract_profile(text: str) -> dict:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     email = next(
@@ -168,6 +238,7 @@ def extract_candidate_profile(text: str) -> dict:
             ],
             model=settings.OLLAMA_PROFILE_MODEL or settings.OLLAMA_MODEL,
             max_tokens=3000,
+            temperature=0.0,
         )
         if isinstance(result, dict):
             scalar_keys = ("name", "email", "phone", "address", "expected_salary", "summary")
@@ -233,22 +304,35 @@ def _cache_put(key: str, value: dict) -> None:
 
 
 def extract_profile_from_cv(contents: bytes, filename: str) -> dict:
-    """Extract the full native text layer from a CV and structure it.
+    """Extract a structured candidate profile from an in-memory CV.
 
-    No OCR — reads the embedded PDF/DOCX/TXT text layer (pypdf/docx), then
-    parses it into a structured profile with a small model. Identical files
-    (same SHA-256) are served from an in-memory cache — no model call.
-    Returns {"text": full CV text, "profile": structured profile}.
+    Fast path: reads the native PDF/DOCX/TXT text layer (pypdf/docx) — no OCR.
+    Scanned/image-only PDFs (no text layer) fall back to a single batched
+    vision-OCR call (deepseek-ocr). The structured profile is then parsed from
+    the text with a small model; identical files (same SHA-256) are served
+    from an in-memory cache — no model call. Returns
+    {"text": full CV text, "profile": structured profile, "ocr": bool}.
     """
     cache_key = hashlib.sha256(contents).hexdigest()
+
+    suffix = Path(filename).suffix.lower()
+    ocr_used = False
     text = extract_text_from_cv_bytes(contents, filename)
+    if suffix == ".pdf" and len(text) < 60:
+        from app.services import ai_client
+
+        try:
+            text = ocr_text_from_pdf(contents)
+            ocr_used = True
+        except ai_client.AIUnavailable:
+            text = ""
     if len(text) < 60:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Could not read any text from this CV. It may be a scanned or "
-                "image-based PDF without a text layer. Please enter your details "
-                "manually instead."
+                "image-based PDF without a readable text layer. Please enter "
+                "your details manually instead."
             ),
         )
 
@@ -257,9 +341,32 @@ def extract_profile_from_cv(contents: bytes, filename: str) -> dict:
         return cached
 
     profile = extract_candidate_profile(text)
-    result = {"text": text, "profile": profile}
+    result = {"text": text, "profile": profile, "ocr": ocr_used}
     _cache_put(cache_key, result)
     return result
+
+
+def warm_ocr_model() -> None:
+    """Warm up the OCR vision model in a background thread at startup.
+
+    The first invocation of a multi-GB model is a cold load that can take a
+    minute; doing it once at startup (with keep_alive) makes the first real
+    scanned-CV request fast.
+    """
+    try:
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page(width=200, height=100)
+        page.insert_text((10, 50), "warmup", fontsize=14)
+        pix = page.get_pixmap(dpi=72)
+        png = base64.b64encode(pix.tobytes("png")).decode("ascii")
+        doc.close()
+        from app.services import ai_client
+
+        ai_client.ocr_images([png], model=settings.OLLAMA_OCR_MODEL)
+    except Exception:
+        pass
 
 
 def validate_cv(text: str, profile: dict) -> dict:

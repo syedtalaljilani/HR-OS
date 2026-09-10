@@ -403,10 +403,11 @@ export default function ApplyForm({
       })
     );
 
+    const endpoint = inviteToken
+      ? `${API_BASE}/public/invitations/${inviteToken}/apply`
+      : `${API_BASE}/public/jobs/${jobId}/apply`;
+
     try {
-      const endpoint = inviteToken
-        ? `${API_BASE}/public/invitations/${inviteToken}/apply`
-        : `${API_BASE}/public/jobs/${jobId}/apply`;
       const res = await fetch(endpoint, {
         method: "POST",
         body,

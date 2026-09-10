@@ -16,12 +16,13 @@ import { cleanAddressQuery } from "@/app/hr/_lib/address";
 import {
   api,
   deleteApplication,
-  deleteCandidate,
   draftEmailWithAI,
   formatDate,
   formatMoney,
   formatStatus,
   recoverApplication,
+  reviewRemoteRequest,
+  reviewSlotRequest,
   scheduleInterview,
   type ApplicationDetail,
   type Candidate,
@@ -121,6 +122,19 @@ export default function CandidateDetailPage() {
   const [previewCv, setPreviewCv] = useState<CVDocument | null>(null);
   const [aiDrafting, setAiDrafting] = useState(false);
   const [companyLocation, setCompanyLocation] = useState("");
+  const [remoteLink, setRemoteLink] = useState("");
+
+  const pendingRemote =
+    detail?.interview_requests?.find(
+      (request) =>
+        request.status === "PENDING" && request.type === "REMOTE"
+    ) ?? null;
+
+  const pendingSlot =
+    detail?.interview_requests?.find(
+      (request) =>
+        request.status === "PENDING" && request.type === "NEW_SLOT"
+    ) ?? null;
 
   const mapSearchUrl = (address: string) =>
     `https://www.google.com/maps/search/?api=1&q=${encodeURIComponent(cleanAddressQuery(address))}`;
@@ -343,21 +357,61 @@ export default function CandidateDetailPage() {
     }
   }
 
-  async function handleDeleteCandidate() {
-    if (!detail) return;
-    if (
-      !window.confirm(
-        `Delete candidate ${detail.candidate_name} and ALL their applications? Everything is moved to trash and can be recovered later.`
-      )
-    )
+  async function handleRemoteReview(accept: boolean) {
+    if (!detail || !pendingRemote) return;
+    if (accept && !remoteLink.trim()) {
+      setError("Enter the meeting link for the remote interview.");
       return;
+    }
     setBusy(true);
     try {
-      await deleteCandidate(detail.candidate_id);
-      setNotice("Candidate and all their applications moved to trash.");
-      router.replace("/dashboard/candidates");
+      await reviewRemoteRequest(
+        detail.id,
+        pendingRemote.interview_id ??
+          detail.interviews.find((i) => i.status === "SCHEDULED")?.id ??
+          pendingRemote.application_id,
+        {
+          accept,
+          meeting_link: remoteLink.trim() || undefined,
+        }
+      );
+      setRemoteLink("");
+      setNotice(
+        accept
+          ? "Remote interview accepted and the candidate was emailed."
+          : "Remote request declined and the candidate was emailed."
+      );
+      await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Delete failed");
+      setError(
+        caught instanceof Error ? caught.message : "Request could not be reviewed"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSlotReview(accept: boolean) {
+    if (!detail || !pendingSlot) return;
+    setBusy(true);
+    try {
+      await reviewSlotRequest(
+        detail.id,
+        pendingSlot.interview_id ??
+          detail.interviews.find((i) => i.status === "SCHEDULED")?.id ??
+          pendingSlot.application_id,
+        { accept }
+      );
+      setNotice(
+        accept
+          ? "Interview rescheduled to the candidate's proposed time and the candidate was emailed."
+          : "Candidate's new time was declined and the candidate was emailed."
+      );
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Request could not be reviewed"
+      );
     } finally {
       setBusy(false);
     }
@@ -589,15 +643,6 @@ export default function CandidateDetailPage() {
                 </svg>
                 Delete
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void handleDeleteCandidate()}
-                title="Delete candidate and all their applications (recoverable)"
-                className="text-[12px] font-medium text-zinc-400 transition hover:text-rose-600 disabled:opacity-50"
-              >
-                Delete candidate
-              </button>
             </>
           )}
         </div>
@@ -773,12 +818,109 @@ export default function CandidateDetailPage() {
                           {interview.notes}
                         </p>
                       ) : null}
+                      {interview.reschedule_link ? (
+                        <a
+                          href={interview.reschedule_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-block text-xs font-medium text-navy-600 hover:underline"
+                        >
+                          Candidate reschedule link
+                        </a>
+                      ) : null}
                     </div>
                     <Badge status={interview.status} />
                   </li>
                 ))}
               </ul>
             )}
+
+            {pendingSlot ? (
+              <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4">
+                <p className="text-sm font-semibold text-sky-900">
+                  New time request
+                </p>
+                <p className="mt-0.5 text-xs text-sky-700">
+                  The candidate asked to move the interview to{" "}
+                  {pendingSlot.proposed_at ? (
+                    <span className="font-medium">
+                      {formatDate(pendingSlot.proposed_at)}
+                    </span>
+                  ) : (
+                    "a new time"
+                  )}
+                  .
+                </p>
+                {pendingSlot.proposed_at ? (
+                  <p className="mt-2 text-xs text-sky-700">
+                    Accepting reschedules the interview and emails the candidate.
+                  </p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="primary"
+                    loading={busy}
+                    onClick={() => void handleSlotReview(true)}
+                    className="text-[13px]"
+                  >
+                    {pendingSlot.proposed_at
+                      ? "Accept & reschedule"
+                      : "Approve"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    loading={busy}
+                    onClick={() => void handleSlotReview(false)}
+                    className="text-[13px]"
+                  >
+                    Decline
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {pendingRemote ? (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">
+                  Remote interview request
+                </p>
+                <p className="mt-0.5 text-xs text-amber-700">
+                  The candidate asked to do the interview remotely.
+                </p>
+                {pendingRemote.reason ? (
+                  <p className="mt-2 text-sm text-zinc-700">
+                    <span className="font-medium">Reason:</span>{" "}
+                    {pendingRemote.reason}
+                  </p>
+                ) : null}
+                <div className="mt-3 flex flex-col gap-2">
+                  <input
+                    value={remoteLink}
+                    onChange={(event) => setRemoteLink(event.target.value)}
+                    placeholder="Meeting link (e.g. https://meet.google.com/…)"
+                    className={inputClass()}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="primary"
+                      loading={busy}
+                      onClick={() => void handleRemoteReview(true)}
+                      className="text-[13px]"
+                    >
+                      Accept & email candidate
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      loading={busy}
+                      onClick={() => void handleRemoteReview(false)}
+                      className="text-[13px]"
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </section>
         </>
       ) : null}

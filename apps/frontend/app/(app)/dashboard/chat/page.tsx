@@ -19,9 +19,11 @@ import {
   type Conversation,
   type EmailMessage,
 } from "@/app/hr/_lib/api";
-
 const CONVERSATION_POLL_MS = 10000;
+
 const THREAD_POLL_MS = 8000;
+
+const CHECK_INBOX_POLL_MS = 60000;
 
 function TimeLabel({ iso }: { iso?: string | null }) {
   const [label, setLabel] = useState("");
@@ -134,6 +136,34 @@ export default function ChatPage() {
       // transient
     }
   }, []);
+
+  const silentCheckInbox = useCallback(async () => {
+    if (busy) return;
+    try {
+      const result = await fetchMailbox();
+      if (result.enabled && result.processed.length > 0) {
+        await refreshUnread();
+        await refreshConvs();
+        if (selectedId) {
+          await loadThread(selectedId);
+        }
+      }
+    } catch {
+      // silent — transient network/IMAP errors are expected
+    }
+  }, [busy, loadThread, refreshConvs, refreshUnread, selectedId]);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void silentCheckInbox(), 0);
+    const timer = setInterval(
+      () => void silentCheckInbox(),
+      CHECK_INBOX_POLL_MS
+    );
+    return () => {
+      window.clearTimeout(initial);
+      clearInterval(timer);
+    };
+  }, [silentCheckInbox]);
 
   useEffect(() => {
     if (!selectedId) return;

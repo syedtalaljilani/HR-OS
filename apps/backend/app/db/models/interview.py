@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -15,8 +16,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import settings
 from app.db.database import Base
-from app.db.models.enums import AssignmentStatus, InterviewStatus, InterviewType
+from app.db.models.enums import (
+    AssignmentStatus,
+    InterviewRequestStatus,
+    InterviewRequestType,
+    InterviewStatus,
+    InterviewType,
+)
 
 
 class Interview(Base):
@@ -43,6 +51,8 @@ class Interview(Base):
         default=InterviewStatus.SCHEDULED,
     )
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    available_slots: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    reschedule_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -64,6 +74,72 @@ class Interview(Base):
     combined_score: Mapped["InterviewCombinedScore"] = relationship(
         back_populates="interview", cascade="all, delete-orphan", uselist=False
     )
+    requests: Mapped[list["InterviewRequest"]] = relationship(
+        back_populates="interview", cascade="all, delete-orphan"
+    )
+
+    @property
+    def reschedule_link(self) -> str | None:
+        if self.reschedule_token:
+            return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/reschedule/{self.reschedule_token}"
+        return None
+
+
+class InterviewRequest(Base):
+    __tablename__ = "interview_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    interview_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("interviews.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    type: Mapped[InterviewRequestType] = mapped_column(
+        Enum(InterviewRequestType, name="interview_request_type"),
+        nullable=False,
+        default=InterviewRequestType.REMOTE,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    awaiting_time: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    status: Mapped[InterviewRequestStatus] = mapped_column(
+        Enum(InterviewRequestStatus, name="interview_request_status"),
+        nullable=False,
+        default=InterviewRequestStatus.PENDING,
+    )
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    application: Mapped["Application"] = relationship(
+        back_populates="interview_requests"
+    )
+    interview: Mapped["Interview"] = relationship(back_populates="requests")
 
 
 class InterviewAssignment(Base):

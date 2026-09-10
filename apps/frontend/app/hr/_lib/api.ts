@@ -169,8 +169,23 @@ export type Interview = {
   scheduled_at: string;
   status: "SCHEDULED" | "COMPLETED" | "CANCELLED";
   location: string | null;
+  available_slots: string[] | null;
   notes: string | null;
+  reschedule_link: string | null;
   created_at: string;
+};
+
+export type InterviewRequest = {
+  id: string;
+  application_id: string;
+  interview_id: string | null;
+  type: "REMOTE" | "NEW_SLOT";
+  reason: string | null;
+  proposed_at: string | null;
+  awaiting_time: boolean;
+  status: "PENDING" | "ACCEPTED" | "DECLINED";
+  created_at: string;
+  resolved_at: string | null;
 };
 
 export type ScheduleInterviewInput = {
@@ -189,6 +204,7 @@ export type ApplicationDetail = ApplicationSummary & {
   screening: Screening | null;
   status_history: HistoryItem[];
   interviews: Interview[];
+  interview_requests: InterviewRequest[];
 };
 
 export type Candidate = {
@@ -304,6 +320,28 @@ export async function scheduleInterview(
     method: "POST",
     body: data as unknown as Record<string, unknown>,
   });
+}
+
+export async function reviewRemoteRequest(
+  applicationId: string,
+  interviewId: string,
+  data: { accept: boolean; meeting_link?: string; note?: string }
+): Promise<InterviewRequest> {
+  return api<InterviewRequest>(
+    `/applications/${applicationId}/interviews/${interviewId}/remote-review`,
+    { method: "POST", body: data as unknown as Record<string, unknown> }
+  );
+}
+
+export async function reviewSlotRequest(
+  applicationId: string,
+  interviewId: string,
+  data: { accept: boolean; note?: string }
+): Promise<InterviewRequest> {
+  return api<InterviewRequest>(
+    `/applications/${applicationId}/interviews/${interviewId}/slot-review`,
+    { method: "POST", body: data as unknown as Record<string, unknown> }
+  );
 }
 
 export type RankedApplication = {

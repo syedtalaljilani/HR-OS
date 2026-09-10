@@ -64,6 +64,14 @@ def _clean_map_query(address: str) -> str:
     return ", ".join(unique)
 
 
+def _is_remote_link(location: str) -> bool:
+    """True when a location value is a join link (http/https), i.e. remote."""
+    return any(
+        line.strip().startswith(("http://", "https://"))
+        for line in location.splitlines()
+    )
+
+
 def record_email(
     db: Session,
     application_id: uuid.UUID | None,
@@ -174,6 +182,7 @@ def application_email_body(
     company_location: str | None = None,
     company_name: str | None = None,
     hr_contact: str | None = None,
+    reschedule_link: str | None = None,
 ) -> str:
     candidate_name = application.candidate.full_name if application.candidate else "there"
     title = application.job.title if application.job else "the position"
@@ -212,13 +221,16 @@ def application_email_body(
             f"Scheduled for: {when_text}\n"
         )
         if location:
+            is_remote = _is_remote_link(location)
             custom_map_links = re.findall(r"(?im)^map\s*:\s*(\S+)\s*$", location)
             shown_location = _clean_map_query(location)
-            if shown_location:
+            if is_remote:
+                body += f"How to join: {shown_location}\n"
+            elif shown_location:
                 body += f"Where / how: {shown_location}\n"
             if custom_map_links:
                 body += f"Map: {custom_map_links[0]}\n"
-            elif shown_location:
+            elif shown_location and not is_remote:
                 map_url = (
                     "https://www.google.com/maps/search/?api=1&query="
                     + urllib.parse.quote(shown_location)
@@ -227,8 +239,9 @@ def application_email_body(
         if notes:
             body += f"\nDetails: {notes}\n"
         body += (
-            "\nPlease confirm your availability — reply to this email if the "
-            "time isn't convenient and we will reschedule.\n\n"
+            "\nPlease confirm your availability by replying to this email. "
+            "If the time isn't convenient, pick another slot here:"
+            f"{' ' + reschedule_link if reschedule_link else ' reply and tell us what works better.'}\n\n"
             f"{signoff}"
         )
         return body

@@ -81,6 +81,58 @@ export async function getInvitation(token: string): Promise<InvitationInfo> {
   return data as InvitationInfo;
 }
 
+export type RescheduleView = {
+  application_id: string;
+  candidate_name: string;
+  job_title: string;
+  interview_id: string;
+  type: "HR" | "TECHNICAL";
+  scheduled_at: string;
+  location: string | null;
+  notes: string | null;
+  available_slots: string[];
+  pending_remote: boolean;
+  already_rescheduled: boolean;
+};
+
+export async function getReschedule(
+  token: string
+): Promise<RescheduleView> {
+  const res = await fetch(
+    `${API_BASE}/public/reschedule/${encodeURIComponent(token)}`,
+    { cache: "no-store" }
+  );
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(
+      typeof data?.detail === "string" ? data.detail : "This link is not valid"
+    );
+  }
+  return data as RescheduleView;
+}
+
+export async function submitReschedule(
+  token: string,
+  payload: { selected_slot?: string; remote_reason?: string }
+): Promise<RescheduleView> {
+  const res = await fetch(
+    `${API_BASE}/public/reschedule/${encodeURIComponent(token)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    }
+  );
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(
+      typeof data?.detail === "string" ? data.detail : "Could not submit"
+    );
+  }
+  return data as RescheduleView;
+}
+
 export function formatSalary(
   min: string | null,
   max: string | null

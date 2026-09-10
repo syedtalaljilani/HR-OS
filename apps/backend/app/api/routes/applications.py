@@ -21,7 +21,13 @@ from app.schemas.application import (
     ScreeningOut,
     StatusUpdate,
 )
-from app.schemas.interview import InterviewCreate, InterviewOut
+from app.schemas.interview import (
+    InterviewCreate,
+    InterviewOut,
+    InterviewRequestOut,
+    RemoteReviewRequest,
+    SlotReviewRequest,
+)
 from app.services import application_service
 from app.services import audit_service as audit
 from app.services import settings_service
@@ -154,6 +160,13 @@ def _to_detail(application: Application) -> ApplicationDetail:
         InterviewOut.model_validate(i)
         for i in sorted(application.interviews or [], key=lambda i: i.created_at)
     ]
+    interview_requests = [
+        InterviewRequestOut.model_validate(r)
+        for r in sorted(
+            application.interview_requests or [],
+            key=lambda r: r.created_at,
+        )
+    ]
     return ApplicationDetail(
         **ApplicationOut.model_validate(application).model_dump(exclude={"screening"}),
         candidate_name=application.candidate.full_name,
@@ -164,6 +177,7 @@ def _to_detail(application: Application) -> ApplicationDetail:
         screening=screening,
         status_history=history,
         interviews=interviews,
+        interview_requests=interview_requests,
     )
 
 
@@ -307,11 +321,12 @@ def schedule_interview(
 ):
     """Schedule an interview call for a candidate (human review outcome).
 
-    Moves the application to INTERVIEW_SCHEDULED and sends the candidate an
-    INTERVIEW email with the scheduled time / location / notes.
+    Moves the application to INTERVIEW_SCHEDULED, generates a secret reschedule
+    link (with alternative slots) and sends the candidate an INTERVIEW email.
     """
     from app.db.models.enums import InterviewStatus
     from app.db.models.interview import Interview
+    from app.services import interview_service
 
     application = _get_application(db, application_id)
     if data.scheduled_at <= datetime.now(timezone.utc):
@@ -329,6 +344,20 @@ def schedule_interview(
         status=InterviewStatus.SCHEDULED,
         created_by=current_user.id,
     )
+    if data.available_slots:
+        cleaned = sorted(
+            {
+                (
+                    slot
+                    if slot.tzinfo is not None
+                    else slot.replace(tzinfo=timezone.utc)
+                ).astimezone(timezone.utc)
+                for slot in data.available_slots
+                if slot > datetime.now(timezone.utc)
+            }
+        )
+        interview.available_slots = [s.isoformat() for s in cleaned]
+    interview_service.setup_reschedule(interview)
     db.add(interview)
     db.flush()
 
@@ -345,10 +374,112 @@ def schedule_interview(
             "company_location": company_location,
             "company_name": company_name,
             "hr_contact": hr_name,
+            "reschedule_link": interview.reschedule_link,
         },
     )
     db.refresh(interview)
     return InterviewOut.model_validate(interview)
+
+
+@router.post(
+    "/{application_id}/interviews/{interview_id}/remote-review",
+    response_model=InterviewRequestOut,
+)
+def review_remote_request(
+    application_id: uuid.UUID,
+    interview_id: uuid.UUID,
+    data: RemoteReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_hr_or_admin),
+):
+    """HR accepts or declines a candidate's remote-interview request.
+
+    On accept, the interview is marked remote (meeting link stored as its
+    location) and the candidate receives a confirmation email. On decline the
+    interview stays as scheduled and the candidate is informed.
+    """
+    from app.db.models.interview import Interview, InterviewRequest
+    from app.services import interview_service
+
+    application = _get_application(db, application_id)
+    if data.accept and not (data.meeting_link or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="A meeting link is required when accepting a remote interview",
+        )
+    if not application.interview_requests:
+        raise HTTPException(status_code=404, detail="No interview request found")
+    request = next(
+        (
+            r
+            for r in sorted(application.interview_requests, key=lambda r: r.created_at)
+            if r.interview_id == interview_id and r.status.value == "PENDING"
+        ),
+        None,
+    )
+    if request is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending interview request for this interview",
+        )
+    interview_service.review_remote_request(
+        db,
+        request,
+        accept=data.accept,
+        meeting_link=data.meeting_link,
+        resolved_by=current_user.id,
+        note=data.note,
+    )
+    db.refresh(application)
+    return InterviewRequestOut.model_validate(request)
+
+
+@router.post(
+    "/{application_id}/interviews/{interview_id}/slot-review",
+    response_model=InterviewRequestOut,
+)
+def review_slot_request(
+    application_id: uuid.UUID,
+    interview_id: uuid.UUID,
+    data: SlotReviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_hr_or_admin),
+):
+    """HR accepts or declines a candidate's proposed new interview time.
+
+    On accept the interview is rescheduled to the candidate's proposed time, the
+    old interview(s) cancelled and a fresh invitation email is sent. On decline
+    the interview stays as scheduled and the candidate is informed.
+    """
+    from app.db.models.enums import InterviewRequestStatus
+    from app.db.models.interview import InterviewRequest
+    from app.services import interview_service
+
+    application = _get_application(db, application_id)
+    request = (
+        db.query(InterviewRequest)
+        .filter(
+            InterviewRequest.application_id == application.id,
+            InterviewRequest.interview_id == interview_id,
+            InterviewRequest.status == InterviewRequestStatus.PENDING,
+        )
+        .order_by(InterviewRequest.created_at.desc())
+        .first()
+    )
+    if request is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No pending slot request for this interview",
+        )
+    interview_service.review_slot_request(
+        db,
+        request,
+        accept=data.accept,
+        resolved_by=current_user.id,
+        note=data.note,
+    )
+    db.refresh(application)
+    return InterviewRequestOut.model_validate(request)
 
 
 @router.post("/{application_id}/decision", response_model=ApplicationOut)

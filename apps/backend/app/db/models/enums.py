@@ -68,6 +68,17 @@ class InterviewStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class InterviewRequestType(str, Enum):
+    REMOTE = "REMOTE"
+    NEW_SLOT = "NEW_SLOT"
+
+
+class InterviewRequestStatus(str, Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
+
+
 class AssignmentStatus(str, Enum):
     ASSIGNED = "ASSIGNED"
     COMPLETED = "COMPLETED"
@@ -78,13 +89,13 @@ class EmailType(str, Enum):
     INTERVIEW = "INTERVIEW"
     SELECTED = "SELECTED"
     REJECTED = "REJECTED"
+    TALENT_POOL = "TALENT_POOL"
     REPLY = "REPLY"
 
 
 class EmailDirection(str, Enum):
     INBOUND = "INBOUND"
     OUTBOUND = "OUTBOUND"
-    TALENT_POOL = "TALENT_POOL"
 
 
 class EmailStatus(str, Enum):

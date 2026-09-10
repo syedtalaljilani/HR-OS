@@ -71,6 +71,9 @@ class Application(Base):
         back_populates="application", cascade="all, delete-orphan", uselist=False
     )
     interviews: Mapped[list["Interview"]] = relationship(back_populates="application")
+    interview_requests: Mapped[list["InterviewRequest"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
 
 
 class ApplicationStatusHistory(Base):
