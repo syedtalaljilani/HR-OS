@@ -115,7 +115,8 @@ HR OS
 ### 1. Database
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+cp .env.example .env   # edit: DB password, SMTP/IMAP, JWT secret, etc.
+docker compose -f docker/docker-compose.yml --env-file .env up -d
 ```
 
 Postgres + pgvector on port `5432` (user `hr`, password `1234`, db `hr_recruitment`).
@@ -138,7 +139,7 @@ python -m venv .venv
 # Windows: .venv\Scripts\activate   | Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 
-cp app/db/.env.example app/db/.env   # edit: DB URL, SMTP/IMAP, JWT secret
+cp .env.example .env           # already done above — everything lives at the repo root
 alembic upgrade head                 # apply migrations
 python -m app.scripts.seed_users     # admin@hros.com / admin12345
 
@@ -153,14 +154,13 @@ inside the FastAPI process — no separate worker commands.
 ```bash
 cd apps/frontend
 npm install
-cp .env.local.example .env.local    # NEXT_PUBLIC_API_URL=http://localhost:8000
-npm run dev                         # http://localhost:3000
+npm run dev                         # http://localhost:3001
 ```
 
 ### 5. Log in
 
-Open http://localhost:3000 → sign in with the seeded account
-(`admin@hros.com` / `admin12345`).
+Open http://localhost:3001 → sign in with the seeded account
+(`admin@hros.com` / `admin12345`). Langfuse runs at http://localhost:3000.
 
 ## How the AI Pipeline Works
 
@@ -191,7 +191,10 @@ from the dashboard, never auto-accepted.
 
 ## Environment Variables
 
-Backend lives in `apps/backend/app/db/.env` — see `.env.example`. Key ones:
+One file for the whole project: `.env` at the repository root (see `.env.example`).
+It feeds the Postgres/Langfuse stack via `docker-compose`, the FastAPI backend via
+`apps/backend/app/core/config.py`, and `NEXT_PUBLIC_API_URL` to the frontend.
+Key ones:
 
 | Variable | Description |
 | --- | --- |
@@ -206,8 +209,7 @@ Backend lives in `apps/backend/app/db/.env` — see `.env.example`. Key ones:
 | `AUTO_EVALUATE_ON_APPLY` / `AUTO_REJECT_*` | auto-screening routing |
 | `TALENT_POOL_INVITES_ON_PUBLISH` / `TALENT_POOL_INVITE_DAYS` | pool automation |
 | `COMPANY_NAME` / `HR_NAME` / `COMPANY_LOCATION` | email identity (also in Settings UI) |
-
-Frontend: `apps/frontend/.env.local` → `NEXT_PUBLIC_API_URL`.
+| `NEXT_PUBLIC_API_URL` | frontend → backend base URL (Next.js reads it from `.env` at build time) |
 
 ## Email Setup (Gmail)
 

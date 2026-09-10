@@ -18,6 +18,7 @@ from ai.graphs.screening import graph
 from ai.schemas import ScreeningState
 
 from app.core.config import settings
+from app.core.observability import invoke_graph, set_span_io, traced
 from app.db.models.application import Application, ScreeningResult
 from app.db.models.enums import (
     ApplicationStatus,
@@ -69,7 +70,7 @@ def _run_graph(
         model=f"ollama/{model}",
         profile_model=f"ollama/{settings.OLLAMA_MODEL}",
     )
-    return graph.invoke(state.as_plain())
+    return invoke_graph(graph, state.as_plain())
 
 
 def _run_graph_capped(
@@ -119,15 +120,25 @@ def _run_graph_capped(
     return box[0]
 
 
+@traced("cv-screening")
 def screen_application(db: Session, application: Application) -> ScreeningResult:
     """Run the LangGraph workflow and persist the result as a ScreeningResult.
 
     Screening runs on Qwen3-8B Q4. Ambiguous (UNCLEAR) cases are only re-run on
     the second-opinion model when OLLAMA_FALLBACK_EVALUATION_MODEL is set.
     """
+    set_span_io(
+        input={
+            "application_id": str(application.application_id),
+            "candidate_id": str(application.candidate_id),
+            "job_id": str(application.job_id),
+            "capped": False,
+        }
+    )
     return _screen_with(db, application, _run_graph)
 
 
+@traced("cv-screening-capped")
 def screen_application_capped(
     db: Session,
     application: Application,
@@ -140,6 +151,15 @@ def screen_application_capped(
     back to the bounded legacy screening. If the cap is 0 it behaves like the
     uncapped version.
     """
+    set_span_io(
+        input={
+            "application_id": str(application.application_id),
+            "candidate_id": str(application.candidate_id),
+            "job_id": str(application.job_id),
+            "timeout_seconds": timeout_seconds,
+            "capped": True,
+        }
+    )
     timeout = (
         timeout_seconds
         if timeout_seconds is not None

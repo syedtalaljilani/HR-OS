@@ -36,6 +36,16 @@ async def lifespan(_: FastAPI):
 
         threading.Thread(target=warm_ocr_model, daemon=True, name="ocr-warmup").start()
     yield
+    # Best-effort flush of any buffered Langfuse spans on shutdown. The
+    # observability client is a lazy singleton that no-ops when disabled.
+    try:
+        from app.core.observability import get_langfuse
+
+        lf = get_langfuse()
+        if lf is not None:
+            lf.flush()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -49,8 +59,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
     ],
     allow_credentials=True,
     allow_methods=["*"],

@@ -2,7 +2,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ENV_FILE = Path(__file__).resolve().parent.parent.parent / "app" / "db" / ".env"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+ENV_FILE = REPO_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -49,7 +50,7 @@ class Settings(BaseSettings):
     # Company office address, included for onsite interview emails.
     COMPANY_LOCATION: str = ""
     # Public base URL used to build candidate-facing links (job invites).
-    PUBLIC_BASE_URL: str = "http://localhost:3000"
+    PUBLIC_BASE_URL: str = "http://localhost:3001"
     # Email reply agent: replies with an interview follow-up when a candidate
     # answers an email, re-invites after a missed interview, and cancels the
     # remaining interviews once a candidate is selected.
@@ -92,6 +93,12 @@ class Settings(BaseSettings):
     # 0 disables the cap.
     AUTO_SCREEN_TIMEOUT_SECONDS: int = 360
     TOP_CANDIDATE_COUNT: int = 10
+    # --- Langfuse observability / evaluation -------------------------------
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "http://localhost:3000"
+    # Judge model for LLM-as-a-judge evaluation runs. Empty = use OLLAMA_MODEL.
+    EVAL_JUDGE_MODEL: str = ""
     ALLOWED_CV_MIME: list[str] = [
         "application/pdf",
         "application/msword",

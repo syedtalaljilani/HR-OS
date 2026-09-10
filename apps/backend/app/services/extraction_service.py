@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.observability import set_span_io, traced
 from app.db.models.application import CVDocument
 from app.db.models.candidate import Candidate
 from app.db.models.enums import ExtractionStatus
@@ -303,6 +304,7 @@ def _cache_put(key: str, value: dict) -> None:
             _PROFILE_CACHE.popitem(last=False)
 
 
+@traced("cv-extraction")
 def extract_profile_from_cv(contents: bytes, filename: str) -> dict:
     """Extract a structured candidate profile from an in-memory CV.
 
@@ -314,6 +316,13 @@ def extract_profile_from_cv(contents: bytes, filename: str) -> dict:
     {"text": full CV text, "profile": structured profile, "ocr": bool}.
     """
     cache_key = hashlib.sha256(contents).hexdigest()
+    set_span_io(
+        input={
+            "filename": Path(filename).name,
+            "bytes": len(contents),
+            "sha256": cache_key,
+        }
+    )
 
     suffix = Path(filename).suffix.lower()
     ocr_used = False

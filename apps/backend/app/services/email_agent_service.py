@@ -17,6 +17,7 @@ from ai.graphs.email import graph
 from ai.schemas.email_state import EmailAgentState
 
 from app.core.config import settings
+from app.core.observability import invoke_graph, set_span_io, traced
 from app.services import settings_service
 
 
@@ -69,12 +70,19 @@ def _clean_placeholders(
 
 def _run(state: EmailAgentState) -> dict:
     """Run the email graph and return {subject, body, model}."""
-    result = graph.invoke(state.as_plain())
+    result = invoke_graph(graph, state.as_plain())
     draft = result.get("draft") or {}
-    body = draft.get("body", "")
+    body = _clean_placeholders(draft.get("body", ""), state.company_name, state.hr_name)
+    set_span_io(
+        output={
+            "subject": draft.get("subject", ""),
+            "body": body,
+            "model": result.get("model"),
+        }
+    )
     return {
         "subject": draft.get("subject", ""),
-        "body": _clean_placeholders(body, state.company_name, state.hr_name),
+        "body": body,
         "model": result.get("model"),
     }
 
@@ -108,6 +116,7 @@ def _base_state(
     )
 
 
+@traced("email-draft")
 def draft_email(
     *,
     email_type: str | None = None,
@@ -126,7 +135,7 @@ def draft_email(
 
     Returns a dict shaped like:
         {"subject": str, "body": str, "model": str | None}
-    The draft is NOT persisted here — the caller reviews then sends.
+    The draft is NOT persisted here �?" the caller reviews then sends.
     """
     state = _base_state(
         email_type=email_type,
@@ -141,6 +150,7 @@ def draft_email(
     return _run(state)
 
 
+@traced("email-draft")
 def assist_hr_email(
     *,
     hr_notes: str,

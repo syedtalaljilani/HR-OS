@@ -13,7 +13,10 @@ if str(_REPO_ROOT) not in sys.path:
 from ai.graphs.job_assistant import graph
 from ai.schemas.job_state import JobAssistantState
 
+from app.core.observability import invoke_graph, set_span_io, traced
 
+
+@traced("job-assist")
 def generate_job_draft(job_title: str | None, user_note: str) -> dict:
     """Run the LangGraph assistant and return a draft for human review.
 
@@ -24,13 +27,25 @@ def generate_job_draft(job_title: str | None, user_note: str) -> dict:
         }
     The draft is NOT persisted here — the caller reviews then saves.
     """
+    set_span_io(
+        input={
+            "job_title": job_title,
+            "user_note": user_note,
+        }
+    )
     state = JobAssistantState(
         job_title=job_title,
         user_note=user_note,
         ai_mode=True,
     )
-    result = graph.invoke(state.as_plain())
+    result = invoke_graph(graph, state.as_plain())
     draft = result.get("job_draft") or {}
+    set_span_io(
+        output={
+            "description_length": len(draft.get("description", "")),
+            "model": result.get("model"),
+        }
+    )
     return {
         "description": draft.get("description", ""),
         "model": result.get("model"),

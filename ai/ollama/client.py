@@ -8,6 +8,8 @@ import os
 import urllib.error
 import urllib.request
 
+from ai.observability import current_generation
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-minilm")
@@ -58,12 +60,29 @@ def chat_json(
         "think": False,
         "options": options,
     }
-    body = _request(f"{OLLAMA_URL}/api/chat", payload, CHAT_TIMEOUT)
-    content = body.get("message", {}).get("content", "")
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError as e:
-        raise AIUnavailable(f"LLM returned invalid JSON: {e}") from e
+    model_name = model or OLLAMA_MODEL
+    with current_generation(
+        name="ollama-chat",
+        model=model_name,
+        model_parameters={
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "keep_alive": keep_alive or OLLAMA_KEEP_ALIVE,
+        },
+        input={
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        },
+    ) as gen:
+        body = _request(f"{OLLAMA_URL}/api/chat", payload, CHAT_TIMEOUT)
+        content = body.get("message", {}).get("content", "")
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            raise AIUnavailable(f"LLM returned invalid JSON: {e}") from e
+        gen.update(output=result)
+        return result
 
 
 def embed_text(text: str, model: str | None = None) -> list[float] | None:
@@ -73,14 +92,29 @@ def embed_text(text: str, model: str | None = None) -> list[float] | None:
         "input": text[:8000],
         "truncate": True,
     }
-    try:
-        body = _request(f"{OLLAMA_URL}/api/embed", payload, EMBED_TIMEOUT)
-    except AIUnavailable:
+    model_name = model or EMBEDDING_MODEL
+    with current_generation(
+        name="ollama-embed",
+        model=model_name,
+        input={"text": text[:2000], "truncate": True},
+    ) as gen:
+        try:
+            body = _request(f"{OLLAMA_URL}/api/embed", payload, EMBED_TIMEOUT)
+        except AIUnavailable:
+            return None
+        embeddings = body.get("embeddings")
+        if isinstance(embeddings, list) and embeddings:
+            vector = embeddings[0]
+            # Do not log the full vector (hundreds of floats) into the trace.
+            gen.update(
+                output={
+                    "dimensions": len(vector) if isinstance(vector, list) else None,
+                    "embedded": True,
+                }
+            )
+            return vector
+        gen.update(output={"embedded": False})
         return None
-    embeddings = body.get("embeddings")
-    if isinstance(embeddings, list) and embeddings:
-        return embeddings[0]
-    return None
 
 
 def is_available() -> bool:

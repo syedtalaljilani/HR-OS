@@ -3,6 +3,7 @@ import urllib.request
 import urllib.error
 
 from app.core.config import settings
+from app.core.observability import current_generation
 
 CHAT_TIMEOUT = 60
 EMBED_TIMEOUT = 60
@@ -23,8 +24,9 @@ def chat_json(
     options: dict = {"temperature": temperature}
     if max_tokens:
         options["num_predict"] = max_tokens
+    model_name = model or settings.OLLAMA_MODEL
     payload = {
-        "model": model or settings.OLLAMA_MODEL,
+        "model": model_name,
         "messages": messages,
         "format": "json",
         "stream": False,
@@ -41,18 +43,31 @@ def chat_json(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=CHAT_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        content = body.get("message", {}).get("content", "")
-        return json.loads(content)
+        with current_generation(
+            name="ollama-chat",
+            model=model_name,
+            model_parameters={"temperature": temperature, "max_tokens": max_tokens},
+            input={
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+        ) as gen:
+            with urllib.request.urlopen(req, timeout=CHAT_TIMEOUT) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            content = body.get("message", {}).get("content", "")
+            result = json.loads(content)
+            gen.update(output=result)
+        return result
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
         raise AIUnavailable(str(e)) from e
 
 
 def embed_text(text: str, model: str | None = None) -> list[float] | None:
     url = f"{settings.OLLAMA_URL}/api/embed"
+    model_name = model or settings.EMBEDDING_MODEL
     payload = {
-        "model": model or settings.EMBEDDING_MODEL,
+        "model": model_name,
         "input": text[:8000],
         "truncate": True,
     }
@@ -63,12 +78,25 @@ def embed_text(text: str, model: str | None = None) -> list[float] | None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=EMBED_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        embeddings = body.get("embeddings")
-        if isinstance(embeddings, list) and embeddings:
-            return embeddings[0]
-        return None
+        with current_generation(
+            name="ollama-embed",
+            model=model_name,
+            input={"text": text[:2000], "truncate": True},
+        ) as gen:
+            with urllib.request.urlopen(req, timeout=EMBED_TIMEOUT) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            embeddings = body.get("embeddings")
+            if isinstance(embeddings, list) and embeddings:
+                vector = embeddings[0]
+                gen.update(
+                    output={
+                        "dimensions": len(vector) if isinstance(vector, list) else None,
+                        "embedded": True,
+                    }
+                )
+                return vector
+            gen.update(output={"embedded": False})
+            return None
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
         return None
 
@@ -92,8 +120,9 @@ def ocr_images(images_b64: list[str], model: str | None = None) -> str:
     if not images_b64:
         raise AIUnavailable("No page images to OCR")
     url = f"{settings.OLLAMA_URL}/api/chat"
+    model_name = model or settings.OLLAMA_OCR_MODEL
     payload = {
-        "model": model or settings.OLLAMA_OCR_MODEL,
+        "model": model_name,
         "messages": [
             {
                 "role": "user",
@@ -119,8 +148,27 @@ def ocr_images(images_b64: list[str], model: str | None = None) -> str:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=CHAT_TIMEOUT * 3) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        return (body.get("message", {}).get("content") or "").strip()
+        with current_generation(
+            name="ollama-ocr",
+            model=model_name,
+            input={
+                # Page images are base64 and never captured in full; only
+                # metadata about the payload is recorded.
+                "model": model_name,
+                "page_count": len(images_b64),
+                "page_images_omitted": True,
+            },
+            model_parameters={"num_predict": 8192},
+        ) as gen:
+            with urllib.request.urlopen(req, timeout=CHAT_TIMEOUT * 3) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            text = (body.get("message", {}).get("content") or "").strip()
+            gen.update(
+                output={
+                    "text": text,
+                    "char_count": len(text),
+                }
+            )
+            return text
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
         raise AIUnavailable(str(e)) from e
