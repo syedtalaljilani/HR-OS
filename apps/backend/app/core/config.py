@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     LANGFUSE_BASE_URL: str = "http://localhost:3000"
     # Judge model for LLM-as-a-judge evaluation runs. Empty = use OLLAMA_MODEL.
     EVAL_JUDGE_MODEL: str = ""
+    # --- Logging -------------------------------------------------------------
+    # Per-module loggers use the shared "hros.*" namespace; configure_logging()
+    # in app/core/logging.py wires up the handlers. LOG_FILE empty = console only.
+    LOG_LEVEL: str = "INFO"
+    LOG_JSON: bool = False
+    LOG_FILE: str = ""
+    # --- AI guardrails -------------------------------------------------------
+    # Sanitize/limit LLM inputs at the ai_client gateway and frame untrusted
+    # (candidate-supplied) text as data so prompt-injection payloads in CVs or
+    # candidate emails cannot redirect the model.
+    AI_GUARDRAILS_ENABLED: bool = True
+    AI_MAX_INPUT_CHARS: int = 48000
     ALLOWED_CV_MIME: list[str] = [
         "application/pdf",
         "application/msword",

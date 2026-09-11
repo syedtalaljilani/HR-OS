@@ -135,8 +135,18 @@ def draft_email(
 
     Returns a dict shaped like:
         {"subject": str, "body": str, "model": str | None}
-    The draft is NOT persisted here �?" the caller reviews then sends.
+    The draft is NOT persisted here; the caller reviews then sends.
     """
+    set_span_io(
+        input={
+            "email_type": email_type,
+            "candidate_name": candidate_name,
+            "job_title": job_title,
+            "reason": reason,
+            "tone": tone,
+            "context_keys": sorted(context) if context else None,
+        }
+    )
     state = _base_state(
         email_type=email_type,
         candidate_name=candidate_name,
@@ -161,6 +171,15 @@ def assist_hr_email(
     db: Session | None = None,
 ) -> dict:
     """HR email-writing assistant. Turns free-form HR notes into a draft."""
+    set_span_io(
+        input={
+            "hr_notes": hr_notes,
+            "candidate_name": candidate_name,
+            "job_title": job_title,
+            "email_type": email_type,
+            "tone": tone,
+        }
+    )
     state = _base_state(
         email_type=email_type,
         candidate_name=candidate_name,

@@ -23,6 +23,16 @@ class AIUnavailable(Exception):
     """Raised when the LLM runtime cannot produce a structured response."""
 
 
+def _usage_details(body: dict) -> dict | None:
+    """Map Ollama token counts to Langfuse ``usage_details`` (input/output)."""
+    details: dict = {}
+    if body.get("prompt_eval_count") is not None:
+        details["input"] = body["prompt_eval_count"]
+    if body.get("eval_count") is not None:
+        details["output"] = body["eval_count"]
+    return details or None
+
+
 def _request(url: str, payload: dict, timeout: int):
     req = urllib.request.Request(
         url,
@@ -81,7 +91,7 @@ def chat_json(
             result = json.loads(content)
         except json.JSONDecodeError as e:
             raise AIUnavailable(f"LLM returned invalid JSON: {e}") from e
-        gen.update(output=result)
+        gen.update(output=result, usage_details=_usage_details(body))
         return result
 
 
@@ -110,10 +120,11 @@ def embed_text(text: str, model: str | None = None) -> list[float] | None:
                 output={
                     "dimensions": len(vector) if isinstance(vector, list) else None,
                     "embedded": True,
-                }
+                },
+                usage_details=_usage_details(body),
             )
             return vector
-        gen.update(output={"embedded": False})
+        gen.update(output={"embedded": False}, usage_details=_usage_details(body))
         return None
 
 

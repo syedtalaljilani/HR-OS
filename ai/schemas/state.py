@@ -1,5 +1,5 @@
 """Shared LangGraph state for the recruitment screening workflow."""
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,25 @@ from .types import (
     ScreeningRecommendation,
     UncertaintyItem,
 )
+
+
+def _merge_dicts(a: dict, b: dict) -> dict:
+    """Merge concurrent node writes to a dict channel (idempotent)."""
+    return {**a, **b}
+
+
+def _merge_str_lists(a: list[str], b: list[str]) -> list[str]:
+    """Union error lists written by concurrent nodes (dedupes, idempotent)."""
+    merged: list[str] = []
+    for item in (*a, *b):
+        if item not in merged:
+            merged.append(item)
+    return merged
+
+
+def _latest_value(a: Any, b: Any) -> Any:
+    """Keep the most recent non-null value when concurrent nodes write model."""
+    return b if b not in (None, "") else a
 
 
 class ScreeningState(BaseModel):
@@ -38,9 +57,14 @@ class ScreeningState(BaseModel):
 
     # Workflow control
     ai_mode: bool = True
-    errors: list[str] = Field(default_factory=list)
-    prompt_versions: dict[str, str] = Field(default_factory=dict)
-    model: str | None = None
+    # Reducers make the shared channels accept concurrent writes from the
+    # parallel screening branches (extraction||requirements, validation||
+    # matching, evidence||uncertainty). All are idempotent.
+    errors: Annotated[list[str], _merge_str_lists] = Field(default_factory=list)
+    prompt_versions: Annotated[dict[str, str], _merge_dicts] = Field(
+        default_factory=dict
+    )
+    model: Annotated[str | None, _latest_value] = None
     # Optional separate (smaller/faster) model for CV extraction while the
     # evaluation-model runs the screening "brain" nodes.
     profile_model: str | None = None

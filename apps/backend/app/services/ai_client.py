@@ -1,16 +1,41 @@
 import json
+import logging
+import time
 import urllib.request
 import urllib.error
 
+from app.core.ai_guardrails import sanitize_ai_text
 from app.core.config import settings
 from app.core.observability import current_generation
 
 CHAT_TIMEOUT = 60
 EMBED_TIMEOUT = 60
 
+logger = logging.getLogger("hros.llm")
+
 
 class AIUnavailable(Exception):
     pass
+
+
+def _usage_details(body: dict) -> dict | None:
+    """Map Ollama token counts to Langfuse ``usage_details`` (input/output)."""
+    details: dict = {}
+    if body.get("prompt_eval_count") is not None:
+        details["input"] = body["prompt_eval_count"]
+    if body.get("eval_count") is not None:
+        details["output"] = body["eval_count"]
+    return details or None
+
+
+def _sanitize_messages(messages: list[dict]) -> list[dict]:
+    """Sanitize + bound every text message before it reaches the model."""
+    out: list[dict] = []
+    for msg in messages:
+        if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+            msg = {**msg, "content": sanitize_ai_text(msg["content"])}
+        out.append(msg)
+    return out
 
 
 def chat_json(
@@ -25,9 +50,10 @@ def chat_json(
     if max_tokens:
         options["num_predict"] = max_tokens
     model_name = model or settings.OLLAMA_MODEL
+    sanitized = _sanitize_messages(messages)
     payload = {
         "model": model_name,
-        "messages": messages,
+        "messages": sanitized,
         "format": "json",
         "stream": False,
         "keep_alive": settings.OLLAMA_KEEP_ALIVE,
@@ -42,13 +68,14 @@ def chat_json(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    start = _monotonic_ms()
     try:
         with current_generation(
             name="ollama-chat",
             model=model_name,
             model_parameters={"temperature": temperature, "max_tokens": max_tokens},
             input={
-                "messages": messages,
+                "messages": sanitized,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             },
@@ -57,18 +84,36 @@ def chat_json(
                 body = json.loads(resp.read().decode("utf-8"))
             content = body.get("message", {}).get("content", "")
             result = json.loads(content)
-            gen.update(output=result)
+            gen.update(output=result, usage_details=_usage_details(body))
+        logger.info(
+            "llm.chat model=%s prompt_tokens=%s completion_tokens=%s dur_ms=%d",
+            model_name,
+            body.get("prompt_eval_count"),
+            body.get("eval_count"),
+            _monotonic_ms() - start,
+        )
         return result
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:
+        logger.warning(
+            "llm.chat model=%s failed err=%s dur_ms=%d",
+            model_name,
+            str(e)[:200],
+            _monotonic_ms() - start,
+        )
         raise AIUnavailable(str(e)) from e
+
+
+def _monotonic_ms() -> int:
+    return int(time.monotonic() * 1000)
 
 
 def embed_text(text: str, model: str | None = None) -> list[float] | None:
     url = f"{settings.OLLAMA_URL}/api/embed"
     model_name = model or settings.EMBEDDING_MODEL
+    safe_text = sanitize_ai_text(text, max_chars=8000)
     payload = {
         "model": model_name,
-        "input": text[:8000],
+        "input": safe_text,
         "truncate": True,
     }
     req = urllib.request.Request(
@@ -77,11 +122,12 @@ def embed_text(text: str, model: str | None = None) -> list[float] | None:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    start = _monotonic_ms()
     try:
         with current_generation(
             name="ollama-embed",
             model=model_name,
-            input={"text": text[:2000], "truncate": True},
+            input={"text": safe_text[:2000], "truncate": True},
         ) as gen:
             with urllib.request.urlopen(req, timeout=EMBED_TIMEOUT) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
@@ -92,12 +138,21 @@ def embed_text(text: str, model: str | None = None) -> list[float] | None:
                     output={
                         "dimensions": len(vector) if isinstance(vector, list) else None,
                         "embedded": True,
-                    }
+                    },
+                    usage_details=_usage_details(body),
+                )
+                logger.info(
+                    "llm.embed model=%s prompt_tokens=%s dur_ms=%d",
+                    model_name,
+                    body.get("prompt_eval_count"),
+                    _monotonic_ms() - start,
                 )
                 return vector
-            gen.update(output={"embedded": False})
+            gen.update(output={"embedded": False}, usage_details=_usage_details(body))
+            logger.info("llm.embed model=%s no_embeddings dur_ms=%d", model_name, _monotonic_ms() - start)
             return None
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+        logger.warning("llm.embed model=%s failed dur_ms=%d", model_name, _monotonic_ms() - start)
         return None
 
 
@@ -167,7 +222,8 @@ def ocr_images(images_b64: list[str], model: str | None = None) -> str:
                 output={
                     "text": text,
                     "char_count": len(text),
-                }
+                },
+                usage_details=_usage_details(body),
             )
             return text
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as e:

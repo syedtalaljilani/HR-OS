@@ -37,6 +37,8 @@ def _extract_materials(trace: dict) -> dict:
 
     if name == "ollama-ocr":
         for o in obs:
+            if not isinstance(o, dict):
+                continue
             out = o.get("output")
             if isinstance(out, dict) and isinstance(out.get("text"), str):
                 mats["ocr_text"] = out["text"]
@@ -51,6 +53,8 @@ def _extract_materials(trace: dict) -> dict:
         mats["trace_input"] = trace.get("input") or root_span.get("input") or {}
         # The profile is the generation whose output is a dict rich in profile keys.
         for o in obs:
+            if not isinstance(o, dict):
+                continue
             out = o.get("output")
             if isinstance(out, dict) and any(
                 k in out for k in ("skills", "experience", "education", "name")
@@ -65,13 +69,29 @@ def _extract_materials(trace: dict) -> dict:
     if name in FEATURES["screening"]:
         mats["trace_input"] = trace.get("input") or {}
         for o in obs:
+            if not isinstance(o, dict):
+                continue
             out = o.get("output")
+            candidates: list = []
             if isinstance(out, list):
-                items = [i for i in out if isinstance(i, dict) and "requirement" in i and "status" in i]
-                if items:
-                    mats["matched"] = items
-            elif isinstance(out, dict) and "recommendation" in out and "score" in out:
-                mats["recommendation"] = out
+                candidates = out
+            elif isinstance(out, dict):
+                nested = out.get("matched_requirements")
+                candidates = nested if isinstance(nested, list) else []
+            items = [
+                i
+                for i in candidates
+                if isinstance(i, dict) and "requirement" in i and "status" in i
+            ]
+            if items:
+                mats["matched"] = items
+            elif isinstance(out, dict):
+                recommand = out.get("recommendation")
+                score_holder = out if ("score" in out and "recommendation" in out) else None
+                if score_holder is None and isinstance(recommand, dict) and "score" in recommand:
+                    score_holder = recommand
+                if score_holder is not None:
+                    mats["recommendation"] = score_holder
         mats["cv_text"] = _user_content(
             next(iter(_obs_with_key(obs, "recommendation")), {})
         )
@@ -80,6 +100,8 @@ def _extract_materials(trace: dict) -> dict:
     if name == "job-assist":
         mats["trace_input"] = trace.get("input") or {}
         for o in obs:
+            if not isinstance(o, dict):
+                continue
             out = o.get("output")
             if isinstance(out, dict) and isinstance(out.get("description"), str):
                 desc = out["description"]
@@ -91,6 +113,8 @@ def _extract_materials(trace: dict) -> dict:
     if name == "email-draft":
         mats["trace_input"] = trace.get("input") or {}
         for o in obs:
+            if not isinstance(o, dict):
+                continue
             out = o.get("output")
             if isinstance(out, dict) and out.get("subject") is not None:
                 mats["trace_output"] = out

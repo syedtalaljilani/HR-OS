@@ -25,11 +25,18 @@ def build() -> StateGraph:
     builder.add_node("recommendation", run_recommendation)
 
     builder.add_edge(START, "extraction")
+    builder.add_edge(START, "requirements")
+
     builder.add_edge("extraction", "validation")
-    builder.add_edge("validation", "requirements")
+    builder.add_edge("extraction", "matching")
     builder.add_edge("requirements", "matching")
+
+    builder.add_edge("validation", "uncertainty")
+
     builder.add_edge("matching", "evidence")
-    builder.add_edge("evidence", "uncertainty")
+    builder.add_edge("matching", "uncertainty")
+
+    builder.add_edge("evidence", "recommendation")
     builder.add_edge("uncertainty", "recommendation")
     builder.add_edge("recommendation", END)
 

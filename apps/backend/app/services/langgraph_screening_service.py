@@ -68,7 +68,7 @@ def _run_graph(
         candidate_id=candidate_id,
         ai_mode=True,
         model=f"ollama/{model}",
-        profile_model=f"ollama/{settings.OLLAMA_MODEL}",
+        profile_model=f"ollama/{settings.OLLAMA_PROFILE_MODEL or settings.OLLAMA_MODEL}",
     )
     return invoke_graph(graph, state.as_plain())
 
@@ -297,4 +297,13 @@ def _screen_with(
     db.commit()
     db.refresh(screening)
     application.screening_results.append(screening)
+    set_span_io(
+        output={
+            "application_id": str(application.application_id),
+            "recommendation": recomm.recommendation,
+            "score": recomm.score,
+            "model": screening.model,
+            "fallback_used": fallback_used,
+        }
+    )
     return screening

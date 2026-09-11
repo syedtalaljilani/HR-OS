@@ -347,11 +347,26 @@ def extract_profile_from_cv(contents: bytes, filename: str) -> dict:
 
     cached = _cache_get(cache_key)
     if cached is not None:
+        set_span_io(
+            output={
+                "text_len": len(cached["text"]),
+                "profile": cached["profile"],
+                "ocr": cached["ocr"],
+                "cached": True,
+            }
+        )
         return cached
 
     profile = extract_candidate_profile(text)
     result = {"text": text, "profile": profile, "ocr": ocr_used}
     _cache_put(cache_key, result)
+    set_span_io(
+        output={
+            "text_len": len(text),
+            "profile": profile,
+            "ocr": ocr_used,
+        }
+    )
     return result
 
 

@@ -18,7 +18,10 @@ from app.api.routes import screening_queue as screening_queue_routes
 from app.api.routes import settings as settings_routes
 from app.api.routes import talent_pool as talent_pool_routes
 from app.api.routes import users as users_routes
+from app.core.logging import RequestLoggingMiddleware, configure_logging
 from app.db.session import get_db
+
+configure_logging()
 
 
 @asynccontextmanager
@@ -66,6 +69,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request correlation + timing log (outermost middleware).
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(auth_routes.router)
 app.include_router(users_routes.router)
