@@ -54,6 +54,7 @@ def _clean_placeholders(
     """
     if not body:
         return body
+    body = re.sub(r"(?im)^[ \t]*CURRENT_DATE[:：]?[ \t]*.*$", "", body)
     values = {"company_name": company_name or "", "hr_name": hr_name or ""}
     for token, key in _TOKEN_PAIRS:
         body = body.replace(token, values[key])
@@ -72,16 +73,19 @@ def _run(state: EmailAgentState) -> dict:
     """Run the email graph and return {subject, body, model}."""
     result = invoke_graph(graph, state.as_plain())
     draft = result.get("draft") or {}
+    subject = _clean_placeholders(
+        draft.get("subject", ""), state.company_name, state.hr_name
+    )
     body = _clean_placeholders(draft.get("body", ""), state.company_name, state.hr_name)
     set_span_io(
         output={
-            "subject": draft.get("subject", ""),
+            "subject": subject,
             "body": body,
             "model": result.get("model"),
         }
     )
     return {
-        "subject": draft.get("subject", ""),
+        "subject": subject,
         "body": body,
         "model": result.get("model"),
     }

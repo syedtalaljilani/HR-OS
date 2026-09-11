@@ -1,6 +1,7 @@
 """Requirement matching prompt (docs/architecture/prompt.md section 5)."""
+from ai.prompts._util import current_date_header
 
-PROMPT_VERSION = "requirement-matching-v2"
+PROMPT_VERSION = "requirement-matching-v3"
 
 SYSTEM = """You are a recruitment requirement matching component.
 
@@ -22,6 +23,10 @@ Strictness guidance:
 - Do not infer a sales role from technical delivery, or a management role from individual contribution. A "leadership" requirement is not satisfied by leading project collaborations unless there is evidence of leading people/teams.
 - Require the role/domain to match: "X in domain Y" needs evidence of X within domain Y.
 - Prefer strict classification. When in doubt between PARTIAL and MISSING, choose MISSING. When in doubt between UNCLEAR and MATCH, choose UNCLEAR.
+- CURRENT_DATE in the user message is today's real date. Judge experience/employment
+  dates against it: a role that ended before CURRENT_DATE is past experience (not
+  current), and anything after CURRENT_DATE is future — do not treat a past date
+  such as November 2025 as an ongoing or future role.
 
 Do not use protected or sensitive characteristics.
 
@@ -41,7 +46,7 @@ Schema:
 def user(requirements: list[str], cv_text: str, job_title: str | None) -> str:
     req_lines = "\n".join(f"- {r}" for r in requirements)
     return (
-        f"JOB_TITLE:\n{job_title or 'N/A'}\n\n"
+        f"{current_date_header()}JOB_TITLE:\n{job_title or 'N/A'}\n\n"
         f"REQUIREMENTS:\n{req_lines}\n\n"
         f"CANDIDATE_CV:\n{cv_text[:6000]}"
     )

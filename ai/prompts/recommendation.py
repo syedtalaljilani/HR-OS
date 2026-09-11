@@ -1,6 +1,7 @@
 """Screening recommendation prompt (docs/architecture/prompt.md section 8)."""
+from ai.prompts._util import current_date_header
 
-PROMPT_VERSION = "screening-recommendation-v2"
+PROMPT_VERSION = "screening-recommendation-v3"
 
 SYSTEM = """You are a recruitment screening recommendation component.
 
@@ -22,6 +23,9 @@ Scoring rubric (score is 0-100 and reflects fit for THIS role):
   * any mandatory requirement PARTIAL    -> score <= 80
 - A candidate who fails core mandatory requirements must score low, even if
   several preferred items match.
+- CURRENT_DATE in the user message is today's real date. Weigh experience against
+  it: roles that ended before CURRENT_DATE are past experience, and a past date
+  (e.g. November 2025) must never be treated as current or future.
 
 If important information is uncertain, set requires_hr_review to true.
 
@@ -46,7 +50,7 @@ def user(matched: list, evidence: list, uncertainties: list, cv_text: str) -> st
     evidence_str = json.dumps(evidence, indent=2)
     unc_str = json.dumps(uncertainties, indent=2)
     return (
-        f"MATCHING_RESULTS:\n{matched_str}\n\n"
+        f"{current_date_header()}MATCHING_RESULTS:\n{matched_str}\n\n"
         f"EVIDENCE_VERIFICATION:\n{evidence_str}\n\n"
         f"UNCERTAINTIES:\n{unc_str}\n\n"
         f"CANDIDATE_CV (for reference):\n{cv_text[:3000]}"

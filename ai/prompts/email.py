@@ -7,8 +7,9 @@ The same prompt powers two flows:
 
 A small model is used; the output must stay plain, concise and human-sounding.
 """
+from datetime import datetime, timezone
 
-PROMPT_VERSION = "email-draft-v2"
+PROMPT_VERSION = "email-draft-v4"
 
 SYSTEM = """You are a senior HR email writer. You compose clear, professional and
 warm recruitment emails in the candidate's language of communication. Write like
@@ -38,6 +39,13 @@ Rules:
   If a name is not provided, omit it from the email entirely.
 - Close politely with a sign-off.
 - If the tone is "firm", be more direct and brief. If "warm", be encouraging.
+- CURRENT_DATE is today's date (and real current year). Judge every date in the
+  request against it. Never assume a date like November 2025 is in the future
+  just because it looks recent — if it is before CURRENT_DATE it is already past,
+  and past interview times must be treated as missed/already happened, not as an
+  upcoming invitation.
+- Never mention CURRENT_DATE or today's date in the output. The subject and body
+  must only contain information a candidate should see — never prompt helpers.
 """
 
 
@@ -56,7 +64,11 @@ def _render_context(context: dict, reason: str | None) -> str:
 
 
 def user(state) -> str:
-    parts = [f"EMAIL_TYPE: {state.email_type or 'general'}"]
+    current_date = datetime.now(timezone.utc).strftime("%A, %d %B %Y")
+    parts = [
+        f"CURRENT_DATE: {current_date}",
+        f"EMAIL_TYPE: {state.email_type or 'general'}",
+    ]
     if state.candidate_name:
         parts.append(f"CANDIDATE_NAME: {state.candidate_name}")
     if state.job_title:

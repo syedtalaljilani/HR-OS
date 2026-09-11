@@ -486,7 +486,12 @@ def handle_reply(
 def process_missed_interviews(
     db: Session, *, grace_minutes: int | None = None
 ) -> dict:
-    """Mark past SCHEDULED interviews as missed and re-invite the candidate."""
+    """Mark past SCHEDULED interviews as missed and re-invite the candidate.
+
+    The re-invite email is only sent while the position is still live: if the
+    application was soft-deleted or its job was removed, the interview is still
+    cancelled but no email goes out.
+    """
     grace = (
         grace_minutes
         if grace_minutes is not None
@@ -506,13 +511,23 @@ def process_missed_interviews(
     processed: list[dict] = []
     for interview in missed:
         application = interview.application
-        candidate = application.candidate
+        candidate = application.candidate if application is not None else None
+        can_reinvite = (
+            application is not None
+            and application.deleted_at is None
+            and application.job is not None
+            and candidate is not None
+        )
 
         interview.status = InterviewStatus.CANCELLED
+        note_type = (
+            f"re-invite sent at {datetime.now(timezone.utc).isoformat()}."
+            if can_reinvite
+            else "no re-invite sent (position no longer available)."
+        )
         note = (
             f"[auto] Candidate missed the interview "
-            f"({_format_when(interview.scheduled_at)}); re-invite sent at "
-            f"{datetime.now(timezone.utc).isoformat()}."
+            f"({_format_when(interview.scheduled_at)}); {note_type}"
         )
         if interview.notes:
             interview.notes = f"{interview.notes}\n{note}"
@@ -526,13 +541,17 @@ def process_missed_interviews(
             entity_type="interview",
             entity_id=interview.id,
             new_value={
-                "application_id": str(application.id),
+                "application_id": str(application.id) if application else None,
                 "scheduled_at": _format_when(interview.scheduled_at),
-                "action_taken": "interview missed and candidate re-invited",
+                "action_taken": (
+                    "interview missed and candidate re-invited"
+                    if can_reinvite
+                    else "interview missed; no re-invite sent"
+                ),
             },
         )
 
-        if candidate is not None:
+        if can_reinvite:
             draft = email_agent_service.draft_email(
                 email_type="INTERVIEW",
                 candidate_name=candidate.full_name,
@@ -565,7 +584,7 @@ def process_missed_interviews(
         processed.append(
             {
                 "interview_id": str(interview.id),
-                "application_id": str(application.id),
+                "application_id": str(application.id) if application else None,
                 "candidate": candidate.full_name if candidate else None,
                 "scheduled_at": _format_when(interview.scheduled_at),
             }
