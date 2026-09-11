@@ -11,6 +11,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -61,18 +62,27 @@ def _build_application_data(
     experience: str | None,
     profile_data: str | None,
 ) -> ApplicationCreate:
-    return ApplicationCreate(
-        full_name=full_name,
-        email=email,
-        phone=phone,
-        address=address,
-        expected_salary=_parse_salary(expected_salary),
-        consent=consent.strip().lower() in ("true", "1", "yes", "on"),
-        skills=skills,
-        education=education,
-        experience=experience,
-        profile_data=profile_data,
-    )
+    try:
+        return ApplicationCreate(
+            full_name=full_name,
+            email=email,
+            phone=phone,
+            address=address,
+            expected_salary=_parse_salary(expected_salary),
+            consent=consent.strip().lower() in ("true", "1", "yes", "on"),
+            skills=skills,
+            education=education,
+            experience=experience,
+            profile_data=profile_data,
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {"loc": err["loc"], "msg": err["msg"], "type": err["type"]}
+                for err in e.errors()
+            ],
+        ) from e
 
 
 async def _submit_application(

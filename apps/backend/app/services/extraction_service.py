@@ -71,35 +71,49 @@ def extract_text_from_cv(cv: CVDocument) -> str:
             )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to extract text: {e}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not read any text from this CV. The file may be "
+            "corrupt or password-protected. Please upload a valid CV file.",
         )
     raise HTTPException(status_code=400, detail="Unsupported CV file type")
 
 
 def extract_text_from_cv_bytes(contents: bytes, filename: str) -> str:
-    """Extract the embedded text layer from an in-memory CV (PDF/DOCX/TXT)."""
+    """Extract the embedded text layer from an in-memory CV (PDF/DOCX/TXT).
+
+    Raises HTTPException(400) when the file type is unsupported or the file
+    is corrupt/unreadable, so public (unauthenticated) routes never leak a 500.
+    """
     suffix = Path(filename).suffix.lower()
-    if suffix == ".pdf":
-        from pypdf import PdfReader
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
 
-        reader = PdfReader(io.BytesIO(contents))
-        return "\n".join(
-            (page.extract_text() or "") for page in reader.pages
-        ).strip()
-    if suffix == ".docx":
-        from docx import Document
+            reader = PdfReader(io.BytesIO(contents))
+            return "\n".join(
+                (page.extract_text() or "") for page in reader.pages
+            ).strip()
+        if suffix == ".docx":
+            from docx import Document
 
-        doc = Document(io.BytesIO(contents))
-        lines = [p.text for p in doc.paragraphs]
-        for table in doc.tables:
-            for row in table.rows:
-                lines.extend(cell.text for cell in row.cells)
-        return "\n".join(lines).strip()
-    if suffix == ".txt":
-        return contents.decode("utf-8", errors="ignore").strip()
+            doc = Document(io.BytesIO(contents))
+            lines = [p.text for p in doc.paragraphs]
+            for table in doc.tables:
+                for row in table.rows:
+                    lines.extend(cell.text for cell in row.cells)
+            return "\n".join(lines).strip()
+        if suffix == ".txt":
+            return contents.decode("utf-8", errors="ignore").strip()
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not read any text from this CV. The file may be "
+            "corrupt or password-protected. Please upload a valid CV file.",
+        )
     raise HTTPException(status_code=400, detail="Unsupported CV file type")
 
 
